@@ -11,6 +11,25 @@
         android:layout_height="wrap_content"
         android:layout_centerInParent="true"
         />
+
+    <TextView
+        android:id="@+id/audio_status"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:layout_above="@+id/take_photo"
+        android:layout_centerHorizontal="true"
+        android:layout_marginBottom="8dp"
+        android:maxWidth="300dp"
+        android:padding="10dp"
+        android:minHeight="48dp"
+        android:gravity="center"
+        android:textSize="12sp"
+        android:textColor="#FFFFFF"
+        android:background="#CC102522"
+        android:contentDescription="@string/audio_mixer"
+        android:importantForAccessibility="yes"
+        android:clickable="true"
+        android:focusable="true" />
     
     <ImageButton
         android:id="@+id/take_photo"
@@ -18,8 +37,8 @@
         android:layout_height="100dp"
         android:padding="10dp"
         android:scaleType="fitCenter"
-        android:contentDescription="@string/take_photo"
-        app:srcCompat="@drawable/take_photo_selector"
+        android:contentDescription="@string/start_video"
+        app:srcCompat="@drawable/gearcam_record"
         android:stateListAnimator="@animator/button_animation"
         android:onClick="clickedTakePhoto"
         android:background="@null"
@@ -93,8 +112,8 @@
         android:layout_height="60dp"
         android:padding="10dp"
         android:scaleType="fitCenter"
-        android:contentDescription="@string/switch_to_video"
-        app:srcCompat="@drawable/take_video"
+        android:contentDescription="@string/audio_mixer"
+        app:srcCompat="@drawable/ic_mixer"
         android:stateListAnimator="@animator/button_animation"
         android:alpha="0.61"
         android:onClick="clickedSwitchVideo"

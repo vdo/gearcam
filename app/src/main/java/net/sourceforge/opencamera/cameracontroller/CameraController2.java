@@ -5282,7 +5282,7 @@ public class CameraController2 extends CameraController {
         }
     }
 
-    private void createCaptureSession(boolean wait_until_started, Runnable runnable, Runnable on_failed, final MediaRecorder video_recorder, boolean want_photo_video_recording) throws CameraControllerException {
+    private void createCaptureSession(boolean wait_until_started, Runnable runnable, Runnable on_failed, final Surface video_surface, boolean want_photo_video_recording) throws CameraControllerException {
         if( MyDebug.LOG )
             Log.d(TAG, "create capture session");
         
@@ -5340,7 +5340,7 @@ public class CameraController2 extends CameraController {
         }
 
         try {
-            if( video_recorder != null ) {
+            if( video_surface != null ) {
                 if( supports_photo_video_recording && !want_video_high_speed && want_photo_video_recording ) {
                     createPictureImageReader();
                 }
@@ -5374,7 +5374,7 @@ public class CameraController2 extends CameraController {
                         Log.d(TAG, "created new target: " + surface_texture);
                 }
             }
-            if( video_recorder != null ) {
+            if( video_surface != null ) {
                 if( MyDebug.LOG )
                     Log.d(TAG, "creating capture session for video recording");
             }
@@ -5388,8 +5388,8 @@ public class CameraController2 extends CameraController {
                 Log.d(TAG, "set preview size: " + this.preview_width + " x " + this.preview_height);
 
             synchronized( background_camera_lock ) {
-                if( video_recorder != null )
-                    video_recorder_surface = video_recorder.getSurface();
+                if( video_surface != null )
+                    video_recorder_surface = video_surface;
                 else
                     video_recorder_surface = null;
                 if( MyDebug.LOG )
@@ -5450,7 +5450,7 @@ public class CameraController2 extends CameraController {
                         captureSession = session;
                         extensionSession = eSession;
                         previewBuilder.addTarget(surface_texture);
-                        if( video_recorder != null ) {
+                        if( video_surface != null ) {
                             if( MyDebug.LOG ) {
                                 Log.d(TAG, "add video recorder surface to previewBuilder: " + video_recorder_surface);
                             }
@@ -5557,7 +5557,7 @@ public class CameraController2 extends CameraController {
             List<Surface> surfaces;
             synchronized( background_camera_lock ) {
                 preview_surface = getPreviewSurface();
-                if( video_recorder != null ) {
+                if( video_surface != null ) {
                     if( supports_photo_video_recording && !want_video_high_speed && want_photo_video_recording ) {
                         surfaces = Arrays.asList(preview_surface, video_recorder_surface, imageReader.getSurface());
                     }
@@ -5585,7 +5585,7 @@ public class CameraController2 extends CameraController {
                 }
             }
             if( MyDebug.LOG ) {
-                if( video_recorder == null ) {
+                if( video_surface == null ) {
                     if( imageReaderRaw != null ) {
                         Log.d(TAG, "imageReaderRaw: " + imageReaderRaw);
                         Log.d(TAG, "imageReaderRaw: " + imageReaderRaw.getWidth());
@@ -5663,7 +5663,7 @@ public class CameraController2 extends CameraController {
                 }
                 is_video_high_speed = false;
             }
-            else if( video_recorder != null && want_video_high_speed /*&& Build.VERSION.SDK_INT >= Build.VERSION_CODES.M*/ ) {
+            else if( video_surface != null && want_video_high_speed /*&& Build.VERSION.SDK_INT >= Build.VERSION_CODES.M*/ ) {
             //if( want_video_high_speed && Build.VERSION.SDK_INT >= Build.VERSION_CODES.M ) {
                 if( MyDebug.LOG )
                     Log.d(TAG, "create high speed capture session");
@@ -7586,8 +7586,18 @@ public class CameraController2 extends CameraController {
 
     @Override
     public void initVideoRecorderPostPrepare(MediaRecorder video_recorder, boolean want_photo_video_recording) throws CameraControllerException {
+        initVideoSurface(video_recorder.getSurface(), want_photo_video_recording);
+    }
+
+    @Override
+    public boolean supportsVideoSurface() {
+        return true;
+    }
+
+    @Override
+    public void initVideoSurface(Surface video_surface, boolean want_photo_video_recording) throws CameraControllerException {
         if( MyDebug.LOG )
-            Log.d(TAG, "initVideoRecorderPostPrepare");
+            Log.d(TAG, "initVideoSurface");
         if( camera == null ) {
             Log.e(TAG, "no camera");
             throw new CameraControllerException();
@@ -7605,7 +7615,7 @@ public class CameraController2 extends CameraController {
             /*if( Build.VERSION.SDK_INT >= Build.VERSION_CODES.UPSIDE_DOWN_CAKE ) {
                 previewBuilder.set(CaptureRequest.CONTROL_AUTOFRAMING, CaptureRequest.CONTROL_AUTOFRAMING_ON); // test
             }*/
-            createCaptureSession(true, null, null, video_recorder, want_photo_video_recording);
+            createCaptureSession(true, null, null, video_surface, want_photo_video_recording);
         }
         catch(CameraAccessException e) {
             MyDebug.logStackTrace(TAG, "failed to create capture request for video", e);
@@ -7853,6 +7863,22 @@ public class CameraController2 extends CameraController {
         }
     }
 
+    private volatile FrameTimeListener nextFrameListener;
+
+    @Override
+    public long sensorTimeToMonotonicNs(long sensorNs) {
+        // REALTIME sensor time runs on the boot-time clock; otherwise (UNKNOWN) it is monotonic.
+        Integer source = characteristics == null ? null : characteristics.get(CameraCharacteristics.SENSOR_INFO_TIMESTAMP_SOURCE);
+        boolean realtime = source != null && source == CameraMetadata.SENSOR_INFO_TIMESTAMP_SOURCE_REALTIME;
+        return realtime ? sensorNs - (android.os.SystemClock.elapsedRealtimeNanos() - System.nanoTime()) : sensorNs;
+    }
+
+    @Override
+    public boolean setNextFrameListener(FrameTimeListener listener) {
+        nextFrameListener = listener;
+        return true;
+    }
+
     private final MyCaptureCallback previewCaptureCallback = new MyCaptureCallback();
 
     private class MyCaptureCallback extends CameraCaptureSession.CaptureCallback {
@@ -7939,6 +7965,12 @@ public class CameraController2 extends CameraController {
         public void onCaptureCompleted(@NonNull CameraCaptureSession session, @NonNull CaptureRequest request, @NonNull TotalCaptureResult result) {
             /*if( MyDebug.LOG )
                 Log.d(TAG, "onCaptureCompleted");*/
+            FrameTimeListener frameListener = nextFrameListener;
+            Long sensorTime = frameListener == null ? null : result.get(CaptureResult.SENSOR_TIMESTAMP);
+            if( sensorTime != null ) {
+                nextFrameListener = null;
+                frameListener.frameTime(sensorTimeToMonotonicNs(sensorTime));
+            }
             if( MyDebug.LOG ) {
                 if( getRequestTagType(request) == RequestTagType.CAPTURE ) {
                     Log.d(TAG, "onCaptureCompleted: capture");

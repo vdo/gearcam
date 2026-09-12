@@ -465,7 +465,7 @@ public class MyApplicationInterface extends BasicApplicationInterface {
 
     @Override
     public boolean isVideoPref() {
-        return sharedPreferences.getBoolean(PreferenceKeys.IsVideoPreferenceKey, false);
+        return true;
     }
 
     @Override
@@ -736,7 +736,8 @@ public class MyApplicationInterface extends BasicApplicationInterface {
 
     @Override
     public String getRecordVideoOutputFormatPref() {
-        return sharedPreferences.getString(PreferenceKeys.VideoFormatPreferenceKey, "preference_video_output_format_default");
+        String format = sharedPreferences.getString(PreferenceKeys.VideoFormatPreferenceKey, "preference_video_output_format_mpeg4_h264");
+        return "preference_video_output_format_mpeg4_hevc".equals(format) ? format : "preference_video_output_format_mpeg4_h264";
     }
 
     @Override
@@ -789,29 +790,7 @@ public class MyApplicationInterface extends BasicApplicationInterface {
 
     @Override
     public float getVideoCaptureRateFactor() {
-        float capture_rate_factor = sharedPreferences.getFloat(PreferenceKeys.getVideoCaptureRatePreferenceKey(main_activity.getPreview().getCameraId(), cameraIdSPhysical), 1.0f);
-        if( MyDebug.LOG )
-            Log.d(TAG, "capture_rate_factor: " + capture_rate_factor);
-        if( Math.abs(capture_rate_factor - 1.0f) > 1.0e-5 ) {
-            // check stored capture rate is valid
-            if( MyDebug.LOG )
-                Log.d(TAG, "check stored capture rate is valid");
-            List<Float> supported_capture_rates = getSupportedVideoCaptureRates();
-            if( MyDebug.LOG )
-                Log.d(TAG, "supported_capture_rates: " + supported_capture_rates);
-            boolean found = false;
-            for(float this_capture_rate : supported_capture_rates) {
-                if( Math.abs(capture_rate_factor - this_capture_rate) < 1.0e-5 ) {
-                    found = true;
-                    break;
-                }
-            }
-            if( !found ) {
-                Log.e(TAG, "stored capture_rate_factor: " + capture_rate_factor + " not supported");
-                capture_rate_factor = 1.0f;
-            }
-        }
-        return capture_rate_factor;
+        return 1.0f;
     }
 
     /** This will always return 1, even if slow motion isn't supported (i.e.,
@@ -819,43 +798,7 @@ public class MyApplicationInterface extends BasicApplicationInterface {
      *  are returned. Entries are returned in increasing order.
      */
     public List<Float> getSupportedVideoCaptureRates() {
-        List<Float> rates = new ArrayList<>();
-        if( main_activity.getPreview().supportsVideoHighSpeed() ) {
-            // We consider a slow motion rate supported if we can get at least 30fps in slow motion.
-            // If this code is updated, see if we also need to update how slow motion fps is chosen
-            // in getVideoFPSPref().
-            if( main_activity.getPreview().getVideoQualityHander().videoSupportsFrameRateHighSpeed(240) ||
-                    main_activity.getPreview().getVideoQualityHander().videoSupportsFrameRate(240) ) {
-                rates.add(1.0f/8.0f);
-                rates.add(1.0f/4.0f);
-                rates.add(1.0f/2.0f);
-            }
-            else if( main_activity.getPreview().getVideoQualityHander().videoSupportsFrameRateHighSpeed(120) ||
-                    main_activity.getPreview().getVideoQualityHander().videoSupportsFrameRate(120) ) {
-                rates.add(1.0f/4.0f);
-                rates.add(1.0f/2.0f);
-            }
-            else if( main_activity.getPreview().getVideoQualityHander().videoSupportsFrameRateHighSpeed(60) ||
-                    main_activity.getPreview().getVideoQualityHander().videoSupportsFrameRate(60) ) {
-                rates.add(1.0f/2.0f);
-            }
-        }
-        rates.add(1.0f);
-        {
-            // add timelapse options
-            // in theory this should work on any Android version, though video fails to record in timelapse mode on Galaxy Nexus...
-            rates.add(2.0f);
-            rates.add(3.0f);
-            rates.add(4.0f);
-            rates.add(5.0f);
-            rates.add(10.0f);
-            rates.add(20.0f);
-            rates.add(30.0f);
-            rates.add(60.0f);
-            rates.add(120.0f);
-            rates.add(240.0f);
-        }
-        return rates;
+        return java.util.Collections.singletonList(1.0f);
     }
 
     @Override
@@ -969,16 +912,7 @@ public class MyApplicationInterface extends BasicApplicationInterface {
 
     @Override
     public int getVideoRestartTimesPref() {
-        String restart_value = sharedPreferences.getString(PreferenceKeys.VideoRestartPreferenceKey, "0");
-        int remaining_restart_video;
-        try {
-            remaining_restart_video = Integer.parseInt(restart_value);
-        }
-        catch(NumberFormatException e) {
-            MyDebug.logStackTrace(TAG, "failed to parse preference_video_restart value: " + restart_value, e);
-            remaining_restart_video = 0;
-        }
-        return remaining_restart_video;
+        return 0; // Each mixed recording has its own audio timeline.
     }
 
     long getVideoMaxFileSizeUserPref() {
@@ -1030,7 +964,7 @@ public class MyApplicationInterface extends BasicApplicationInterface {
             Log.d(TAG, "getVideoMaxFileSizePref");
         VideoMaxFileSize video_max_filesize = new VideoMaxFileSize();
         video_max_filesize.max_filesize = getVideoMaxFileSizeUserPref();
-        video_max_filesize.auto_restart = getVideoRestartMaxFileSizeUserPref();
+        video_max_filesize.auto_restart = false;
 		
 		/* Try to set the max filesize so we don't run out of space.
 		   If using SD card without storage access framework, it's not reliable to get the free storage
@@ -1734,45 +1668,6 @@ public class MyApplicationInterface extends BasicApplicationInterface {
      *  the CameraController is set up, and we don't always re-setup the camera when switching between photo and video modes.
      */
     public PhotoMode getPhotoMode() {
-        String photo_mode_pref = sharedPreferences.getString(PreferenceKeys.PhotoModePreferenceKey, "preference_photo_mode_std");
-		/*if( MyDebug.LOG )
-			Log.d(TAG, "photo_mode_pref: " + photo_mode_pref);*/
-        boolean dro = photo_mode_pref.equals("preference_photo_mode_dro");
-        if( dro && main_activity.supportsDRO() )
-            return PhotoMode.DRO;
-        boolean hdr = photo_mode_pref.equals("preference_photo_mode_hdr");
-        if( hdr && main_activity.supportsHDR() )
-            return PhotoMode.HDR;
-        boolean expo_bracketing = photo_mode_pref.equals("preference_photo_mode_expo_bracketing");
-        if( expo_bracketing && main_activity.supportsExpoBracketing() )
-            return PhotoMode.ExpoBracketing;
-        boolean focus_bracketing = photo_mode_pref.equals("preference_photo_mode_focus_bracketing");
-        if( focus_bracketing && main_activity.supportsFocusBracketing() )
-            return PhotoMode.FocusBracketing;
-        boolean fast_burst = photo_mode_pref.equals("preference_photo_mode_fast_burst");
-        if( fast_burst && main_activity.supportsFastBurst() )
-            return PhotoMode.FastBurst;
-        boolean noise_reduction = photo_mode_pref.equals("preference_photo_mode_noise_reduction");
-        if( noise_reduction && main_activity.supportsNoiseReduction() )
-            return PhotoMode.NoiseReduction;
-        boolean panorama = photo_mode_pref.equals("preference_photo_mode_panorama");
-        if( panorama && !main_activity.getPreview().isVideo() && main_activity.supportsPanorama() )
-            return PhotoMode.Panorama;
-        boolean x_auto = photo_mode_pref.equals("preference_photo_mode_x_auto");
-        if( x_auto && !main_activity.getPreview().isVideo() && main_activity.supportsCameraExtension(CameraExtensionCharacteristics.EXTENSION_AUTOMATIC) )
-            return PhotoMode.X_Auto;
-        boolean x_hdr = photo_mode_pref.equals("preference_photo_mode_x_hdr");
-        if( x_hdr && !main_activity.getPreview().isVideo() && main_activity.supportsCameraExtension(CameraExtensionCharacteristics.EXTENSION_HDR) )
-            return PhotoMode.X_HDR;
-        boolean x_night = photo_mode_pref.equals("preference_photo_mode_x_night");
-        if( x_night && !main_activity.getPreview().isVideo() && main_activity.supportsCameraExtension(CameraExtensionCharacteristics.EXTENSION_NIGHT) )
-            return PhotoMode.X_Night;
-        boolean x_bokeh = photo_mode_pref.equals("preference_photo_mode_x_bokeh");
-        if( x_bokeh && !main_activity.getPreview().isVideo() && main_activity.supportsCameraExtension(CameraExtensionCharacteristics.EXTENSION_BOKEH) )
-            return PhotoMode.X_Bokeh;
-        boolean x_beauty = photo_mode_pref.equals("preference_photo_mode_x_beauty");
-        if( x_beauty && !main_activity.getPreview().isVideo() && main_activity.supportsCameraExtension(CameraExtensionCharacteristics.EXTENSION_BEAUTY) )
-            return PhotoMode.X_Beauty;
         return PhotoMode.Standard;
     }
 
@@ -1899,10 +1794,7 @@ public class MyApplicationInterface extends BasicApplicationInterface {
 
     @Override
     public boolean usePhotoVideoRecording() {
-        // we only show the preference for Camera2 API (since there's no point disabling the feature for old API)
-        if( !useCamera2() )
-            return true;
-        return sharedPreferences.getBoolean(PreferenceKeys.Camera2PhotoVideoRecordingPreferenceKey, true);
+        return false;
     }
 
     @Override
@@ -2142,9 +2034,9 @@ public class MyApplicationInterface extends BasicApplicationInterface {
         }
         main_activity.stopAudioListeners(); // important otherwise MediaRecorder will fail to start() if we have an audiolistener! Also don't want to have the speech recognizer going off
         ImageButton view = main_activity.findViewById(R.id.take_photo);
-        view.setImageResource(R.drawable.take_video_recording);
+        view.setImageResource(R.drawable.gearcam_stop);
         view.setContentDescription( getContext().getResources().getString(R.string.stop_video) );
-        view.setTag(R.drawable.take_video_recording); // for testing
+        view.setTag(R.drawable.gearcam_stop); // for testing
         main_activity.getMainUI().destroyPopup(); // as the available popup options change while recording video
     }
 
@@ -2427,7 +2319,7 @@ public class MyApplicationInterface extends BasicApplicationInterface {
         if( Build.VERSION.SDK_INT >= Build.VERSION_CODES.N ) {
             if( !( main_activity.getMainUI().inImmersiveMode() && main_activity.usingKitKatImmersiveModeEverything() ) ) {
                 View pauseVideoButton = main_activity.findViewById(R.id.pause_video);
-                pauseVideoButton.setVisibility(View.VISIBLE);
+                pauseVideoButton.setVisibility(main_activity.getPreview().getJamAudioSession() == null ? View.VISIBLE : View.GONE);
             }
             main_activity.getMainUI().setPauseVideoContentDescription();
         }
@@ -2455,13 +2347,14 @@ public class MyApplicationInterface extends BasicApplicationInterface {
 
     @Override
     public void stoppingVideo() {
+        main_activity.dismissAudioMixer();
         if( MyDebug.LOG )
             Log.d(TAG, "stoppingVideo()");
         main_activity.unlockScreen();
         ImageButton view = main_activity.findViewById(R.id.take_photo);
-        view.setImageResource(R.drawable.take_video_selector);
+        view.setImageResource(R.drawable.gearcam_record);
         view.setContentDescription( getContext().getResources().getString(R.string.start_video) );
-        view.setTag(R.drawable.take_video_selector); // for testing
+        view.setTag(R.drawable.gearcam_record); // for testing
 
         main_activity.setZoomSticky(true); // reenable the zoom sticky available (for Camera2 API)
     }

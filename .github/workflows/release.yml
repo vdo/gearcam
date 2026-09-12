@@ -1,0 +1,88 @@
+# Builds GearCam APKs when a semver tag is pushed, and attaches them to a GitHub release.
+#
+# The release APK is signed only if these repository secrets exist (Settings > Secrets and variables > Actions):
+#   KEYSTORE_BASE64    the keystore, base64 encoded: base64 -i release.jks | pbcopy
+#   KEYSTORE_PASSWORD  its password
+#   KEY_ALIAS          the key to sign with
+#   KEY_PASSWORD       that key's password
+# Without them the build still runs and publishes an APK marked unsigned, which Android will not install.
+name: Release APKs
+
+on:
+  push:
+    tags:
+      - 'v*.*.*'
+      - '*.*.*'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0 # release notes are generated from the previous tag
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      - uses: actions/cache@v4
+        with:
+          path: |
+            ~/.gradle/caches
+            ~/.gradle/wrapper
+          key: gradle-${{ runner.os }}-${{ hashFiles('**/*.gradle', 'gradle/wrapper/gradle-wrapper.properties') }}
+          restore-keys: gradle-${{ runner.os }}-
+
+      - name: Install the NDK and CMake the project pins
+        run: |
+          set -eu
+          ndk=$(sed -n "s/.*ndkVersion '\(.*\)'.*/\1/p" app/build.gradle)
+          cmake=$(sed -n 's/.*cmake_minimum_required(VERSION \([0-9.]*\).*/\1/p' app/src/main/cpp/CMakeLists.txt)
+          echo "NDK $ndk, CMake $cmake"
+          yes | "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" "ndk;$ndk" "cmake;$cmake" > /dev/null
+
+      - name: Test and build
+        run: |
+          chmod +x ./gradlew
+          ./gradlew --no-daemon testDebugUnitTest assembleDebug assembleRelease
+
+      - name: Sign the release APK
+        env:
+          KEYSTORE_BASE64: ${{ secrets.KEYSTORE_BASE64 }}
+          KEYSTORE_PASSWORD: ${{ secrets.KEYSTORE_PASSWORD }}
+          KEY_ALIAS: ${{ secrets.KEY_ALIAS }}
+          KEY_PASSWORD: ${{ secrets.KEY_PASSWORD }}
+        run: |
+          set -eu
+          tag=${GITHUB_REF_NAME}
+          mkdir -p out
+          cp app/build/outputs/apk/debug/app-debug.apk "out/gearcam-$tag-debug.apk"
+          unsigned=app/build/outputs/apk/release/app-release-unsigned.apk
+          if [ -z "${KEYSTORE_BASE64:-}" ]; then
+            echo "::warning::No signing secrets, so the release APK is unsigned and cannot be installed."
+            cp "$unsigned" "out/gearcam-$tag-release-unsigned.apk"
+            exit 0
+          fi
+          echo "$KEYSTORE_BASE64" | base64 -d > "$RUNNER_TEMP/release.jks"
+          "$ANDROID_HOME"/build-tools/*/apksigner sign \
+            --ks "$RUNNER_TEMP/release.jks" --ks-pass "pass:$KEYSTORE_PASSWORD" \
+            --ks-key-alias "$KEY_ALIAS" --key-pass "pass:$KEY_PASSWORD" \
+            --out "out/gearcam-$tag-release.apk" "$unsigned"
+          rm -f "$RUNNER_TEMP/release.jks"
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: apks
+          path: out/*.apk
+
+      - name: Publish the release
+        if: startsWith(github.ref, 'refs/tags/')
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh release create "$GITHUB_REF_NAME" out/*.apk --title "$GITHUB_REF_NAME" --generate-notes

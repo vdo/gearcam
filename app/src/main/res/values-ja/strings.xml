@@ -1,7 +1,7 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
 
-    <string name="app_name">Open Camera</string> <!-- shouldn't be translated -->
+    <string name="app_name">GearCam</string> <!-- shouldn't be translated -->
     <string name="action_settings">設定</string>
     <string name="action_popup">ポップアップ設定</string>
     <string name="intro_ok">了解しました (この内容を再度表示しない)</string>
@@ -119,9 +119,9 @@
     <string name="preference_save_video_prefix_summary">保存するビデオのファイル名の手前につける内容を設定します</string>
     <string name="preference_save_zulu_time">ファイル名に使用する時刻フォーマット</string>
     <string name="preference_show_when_locked">ロック画面上でもカメラを表示する</string>
-    <string name="preference_show_when_locked_summary">有効にするとOpen Cameraがロック画面上でも表示されます(ギャラリーを既定のアプリにしているなど、ロックの解除が必要になる場合もあります)</string>
+    <string name="preference_show_when_locked_summary">有効にするとGearCamがロック画面上でも表示されます(ギャラリーを既定のアプリにしているなど、ロックの解除が必要になる場合もあります)</string>
     <string name="preference_startup_focus">起動時にオートフォーカスを行う</string>
-    <string name="preference_startup_focus_summary">Open Camera の起動時にオートフォーカスを行います。もし起動時にライトが点灯する問題が起こる場合は設定をオフにしてください。</string>
+    <string name="preference_startup_focus_summary">GearCam の起動時にオートフォーカスを行います。もし起動時にライトが点灯する問題が起こる場合は設定をオフにしてください。</string>
     <string name="preference_lock_video">録画中は画面を固定する</string>
     <string name="preference_lock_video_summary">録画が停止しないように画面を固定します。固定は画面をスワイプすると解除されます。アプリをバックグラウンドに移すか画面を消灯しても録画は停止します。</string>
     <string name="preference_rotate_preview">プレビューを回転</string>
@@ -220,13 +220,13 @@
     
     <string name="preference_category_online">その他の内容</string>
     <string name="preference_online_help">オンラインヘルプ</string>
-    <string name="preference_online_help_summary">Open Camera のWEBサイトをブラウザで開きます</string>
+    <string name="preference_online_help_summary">GearCam のWEBサイトをブラウザで開きます</string>
     <string name="preference_use_camera2">Camera2 APIを使う</string>
     <string name="preference_use_camera2_summary">有効にするとCamera2 APIを使用します。この設定は試験的に提供しています (再起動が必要です)</string>
     <string name="preference_about">このアプリについて</string>
     <string name="preference_about_summary">アプリとデバッグの情報を表示します</string>
     <string name="preference_reset">設定をリセットする</string>
-    <string name="preference_reset_summary">Open Cameraの設定をすべてリセットします</string>
+    <string name="preference_reset_summary">GearCamの設定をすべてリセットします</string>
     <string name="preference_reset_question">本当にすべての設定をリセットしますか？</string>
 
     <string name="about_available">利用可能</string>
@@ -675,7 +675,7 @@
     <string name="preference_screen_settings_manager">設定マネージャー</string>
 
     <string name="preference_save_settings">設定を保存</string>
-    <string name="preference_save_settings_summary">Open Camera のすべての設定をファイルに保存します</string>
+    <string name="preference_save_settings_summary">GearCam のすべての設定をファイルに保存します</string>
     <string name="preference_save_settings_filename">保存する設定の名前</string>
 
     <string name="preference_restore_settings">設定を復元</string>
@@ -747,7 +747,7 @@
     <string name="bluetooth_not_supported">Bluetooth をサポートしていません。</string>
     <string name="unknown_device">不明なデバイス</string>
     <string name="preference_remote_disconnect_screen_dim">接続先から切断された場合は画面を暗くする</string>
-    <string name="preference_remote_disconnect_screen_dim_summary">ヒント: Open Camera の起動時にデフォルトの輝度を最小輝度に設定します。</string>
+    <string name="preference_remote_disconnect_screen_dim_summary">ヒント: GearCam の起動時にデフォルトの輝度を最小輝度に設定します。</string>
     <string name="preference_water_type">深度計算のために海水を使用する</string>
     <string name="preference_water_type_summary">水中ハウジングの場合、正しい水のタイプを選択すると精度が向上します。</string>
     <string name="remote_connected">接続されています</string>
@@ -832,10 +832,7 @@
         この機能をオンにした場合、画面上に表示されるマイクボタンを使用してリスニングをスタート/ストップします。
         \n%s</string>
 
-    <string name="intro_text">フォーカスするには画面をタッチ、そして写真を撮るには青いカメラボタンを押します。
-        \n\nAndroid5以降の端末でSDカードに保存するには、[設定]->[Storage Access Framework]を設定します。
-        詳しくは、[設定]->[オンラインヘルプ]をご覧ください。
-    </string>
+    <string name="intro_text">GearCam records video for your jams. Touch to focus and press the red record button to start or stop. Open the mixer to select phone or USB inputs, check levels, and adjust gain and pan.</string>
 
     <string name="preference_select_remote">リモートデバイスの選択</string>
 

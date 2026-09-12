@@ -1062,45 +1062,17 @@ public class MainUI {
      *  Also handles content descriptions for the take photo button and switch video button.
      */
     public void setTakePhotoIcon() {
-        if( MyDebug.LOG )
-            Log.d(TAG, "setTakePhotoIcon()");
-        if( main_activity.getPreview() != null ) {
-            ImageButton view = main_activity.findViewById(R.id.take_photo);
-            int resource;
-            int content_description;
-            int switch_video_content_description;
-            if( main_activity.getPreview().isVideo() ) {
-                if( MyDebug.LOG )
-                    Log.d(TAG, "set icon to video");
-                resource = main_activity.getPreview().isVideoRecording() ? R.drawable.take_video_recording : R.drawable.take_video_selector;
-                content_description = main_activity.getPreview().isVideoRecording() ? R.string.stop_video : R.string.start_video;
-                switch_video_content_description = R.string.switch_to_photo;
-            }
-            else if( main_activity.getApplicationInterface().getPhotoMode() == MyApplicationInterface.PhotoMode.Panorama &&
-                    main_activity.getApplicationInterface().getGyroSensor().isRecording() ) {
-                if( MyDebug.LOG )
-                    Log.d(TAG, "set icon to recording panorama");
-                resource = R.drawable.baseline_check_white_48;
-                content_description = R.string.finish_panorama;
-                switch_video_content_description = R.string.switch_to_video;
-            }
-            else {
-                if( MyDebug.LOG )
-                    Log.d(TAG, "set icon to photo");
-                resource = R.drawable.take_photo_selector;
-                content_description = R.string.take_photo;
-                switch_video_content_description = R.string.switch_to_video;
-            }
-            view.setImageResource(resource);
-            view.setContentDescription( main_activity.getResources().getString(content_description) );
-            view.setTag(resource); // for testing
-
-            view = main_activity.findViewById(R.id.switch_video);
-            view.setContentDescription( main_activity.getResources().getString(switch_video_content_description) );
-            resource = main_activity.getPreview().isVideo() ? R.drawable.take_photo : R.drawable.take_video;
-            view.setImageResource(resource);
-            view.setTag(resource); // for testing
-        }
+        if (main_activity.getPreview() == null) return;
+        ImageButton record = main_activity.findViewById(R.id.take_photo);
+        boolean recording = main_activity.getPreview().isVideoRecording();
+        int resource = recording ? R.drawable.gearcam_stop : R.drawable.gearcam_record;
+        record.setImageResource(resource);
+        record.setContentDescription(main_activity.getString(recording ? R.string.stop_video : R.string.start_video));
+        record.setTag(resource);
+        ImageButton mixer = main_activity.findViewById(R.id.switch_video);
+        mixer.setImageResource(R.drawable.ic_mixer);
+        mixer.setContentDescription(main_activity.getString(R.string.audio_mixer));
+        mixer.setTag(R.drawable.ic_mixer);
     }
 
     /** Set content description for switch camera button.
@@ -1278,7 +1250,7 @@ public class MainUI {
                     }
                     if( Build.VERSION.SDK_INT >= Build.VERSION_CODES.N && main_activity.getPreview().isVideoRecording() ) {
                         View pauseVideoButton = main_activity.findViewById(R.id.pause_video);
-                        pauseVideoButton.setVisibility(visibility);
+                        pauseVideoButton.setVisibility(main_activity.getPreview().getJamAudioSession() == null ? visibility : View.GONE);
                     }
                     if( main_activity.getPreview().supportsPhotoVideoRecording() && main_activity.getApplicationInterface().usePhotoVideoRecording() && main_activity.getPreview().isVideoRecording() ) {
                         View takePhotoVideoButton = main_activity.findViewById(R.id.take_photo_when_video_recording);
@@ -1341,7 +1313,7 @@ public class MainUI {
                     switchCameraButton.setVisibility(visibility);
                 if( main_activity.showSwitchMultiCamIcon() )
                     switchMultiCameraButton.setVisibility(visibility);
-                switchVideoButton.setVisibility(visibility);
+                switchVideoButton.setVisibility(visibility_video);
                 if( main_activity.supportsExposureButton() )
                     exposureButton.setVisibility(visibility_video); // still allow exposure when recording video
                 onScreenIcons.setVisibility(visibility, visibility_video);

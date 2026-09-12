@@ -64,6 +64,9 @@ import android.hardware.camera2.CameraExtensionCharacteristics;
 import android.location.Location;
 import android.media.CamcorderProfile;
 import android.media.MediaRecorder;
+import net.sourceforge.opencamera.audio.JamAudioSession;
+import net.sourceforge.opencamera.audio.LiveMuxer;
+import net.sourceforge.opencamera.audio.LiveVideoEncoder;
 import android.net.Uri;
 import android.os.AsyncTask;
 import android.os.BatteryManager;
@@ -197,6 +200,46 @@ public class Preview implements SurfaceHolder.Callback, TextureView.SurfaceTextu
     private CloseCameraTask close_camera_task; // background task used for closing camera
     private boolean has_permissions = true; // whether we have permissions necessary to operate the camera (camera, storage); assume true until we've been denied one of them
     private boolean is_video;
+    private volatile JamAudioSession jamAudioSession;
+    private boolean finishingMix;
+
+    public JamAudioSession getJamAudioSession() { return jamAudioSession; }
+    public boolean isFinishingMix() { return finishingMix; }
+
+    /** The saved video begins at its first recorded frame, which can arrive about a second after
+     *  MediaRecorder.start() while the camera session restarts. Start the audio at that frame's exposure. */
+    private void startMixedAudio(JamAudioSession audio, long started) {
+        boolean reported = camera_controller != null && camera_controller.setNextFrameListener(frameNs ->
+                audio.startVideo(frameNs > started - 1_000_000_000L && frameNs < started + 3_000_000_000L ? frameNs : started));
+        if (!reported) audio.startVideo(started);
+        else new Handler(android.os.Looper.getMainLooper()).postDelayed(() -> audio.startVideo(started), 1500); // no frame reported
+    }
+
+    private void discardJamAudio() {
+        if (jamAudioSession != null) { jamAudioSession.cancelAndDiscard(); jamAudioSession = null; }
+    }
+
+    /** A mixed take encoding straight into its final MP4 (see startLiveRecording()); null otherwise. */
+    private volatile LiveVideoEncoder liveVideo;
+
+    private boolean recordingVideo() { return video_recorder != null || liveVideo != null; }
+
+    /** Whether this take is being written straight into its final MP4 (rather than joined after stopping). */
+    public boolean isLiveMixedRecording() { return liveVideo != null; }
+
+    /** Stops the take and says why: an unexpected end of a take needs its reason read, not a toast. */
+    private JamAudioSession.FailureListener mixFailureListener() {
+        return message -> {
+            Activity activity = (Activity) getContext();
+            activity.runOnUiThread(() -> {
+                if (recordingVideo()) stopVideo(false);
+                if (!activity.isFinishing() && !activity.isDestroyed())
+                    new android.app.AlertDialog.Builder(activity).setTitle("Recording stopped")
+                            .setMessage(message).setPositiveButton(android.R.string.ok, null).show();
+            });
+        };
+    }
+
     private volatile MediaRecorder video_recorder; // must be volatile for test project reading the state
     private volatile boolean video_start_time_set; // must be volatile for test project reading the state
     private long video_start_time; // system time when the video recording was started, or last resumed if it was paused
@@ -1188,13 +1231,14 @@ public class Preview implements SurfaceHolder.Callback, TextureView.SurfaceTextu
     public void stopVideo(boolean from_restart) {
         if( MyDebug.LOG )
             Log.d(TAG, "stopVideo()");
-        if( video_recorder == null ) {
+        if( !recordingVideo() ) {
             // no need to do anything if not recording
             // (important to exit, otherwise we'll momentarily switch the take photo icon to video mode in MyApplicationInterface.stoppingVideo() when opening the settings in landscape mode
             if( MyDebug.LOG )
                 Log.d(TAG, "video wasn't recording anyway");
             return;
         }
+        if (jamAudioSession != null) jamAudioSession.stopVideo();
         applicationInterface.stoppingVideo();
         if( flashVideoTimerTask != null ) {
             flashVideoTimerTask.cancel();
@@ -1206,6 +1250,10 @@ public class Preview implements SurfaceHolder.Callback, TextureView.SurfaceTextu
         }
         if( !from_restart ) {
             remaining_restart_video = 0;
+        }
+        if( liveVideo != null ) {
+            liveRecordingStopped();
+            return;
         }
         if( video_recorder != null ) { // check again, just to be safe
             if( MyDebug.LOG )
@@ -1236,6 +1284,7 @@ public class Preview implements SurfaceHolder.Callback, TextureView.SurfaceTextu
                 // stop() can throw a RuntimeException if stop is called too soon after start - this indicates the video file is corrupt, and should be deleted
                 if( MyDebug.LOG )
                     Log.d(TAG, "runtime exception when stopping video");
+                discardJamAudio();
                 videoFileInfo.close();
                 applicationInterface.deleteUnusedVideo(videoFileInfo.video_method, videoFileInfo.video_uri, videoFileInfo.video_filename);
 
@@ -1265,7 +1314,31 @@ public class Preview implements SurfaceHolder.Callback, TextureView.SurfaceTextu
         applicationInterface.cameraInOperation(false, true);
         reconnectCamera(false); // n.b., if something went wrong with video, then we reopen the camera - which may fail (or simply not reopen, e.g., if app is now paused)
         videoFileInfo.close();
-        applicationInterface.stoppedVideo(videoFileInfo.video_method, videoFileInfo.video_uri, videoFileInfo.video_filename);
+        if (jamAudioSession != null) {
+            final JamAudioSession completedAudio = jamAudioSession;
+            final VideoFileInfo completedVideo = videoFileInfo;
+            jamAudioSession = null;
+            finishingMix = true;
+            showToast(null, R.string.gearcam_finalizing);
+            completedAudio.saveAsync(completedVideo.video_uri, completedVideo.video_filename, error -> {
+                Activity activity = (Activity) getContext();
+                activity.runOnUiThread(() -> {
+                    finishingMix = false;
+                    if (error == null) {
+                        applicationInterface.stoppedVideo(completedVideo.video_method, completedVideo.video_uri, completedVideo.video_filename);
+                    } else {
+                        applicationInterface.stoppedVideo(ApplicationInterface.VideoMethod.FILE, null, null);
+                        if (!activity.isFinishing() && !activity.isDestroyed()) {
+                            new android.app.AlertDialog.Builder(activity).setTitle("Recording needs recovery")
+                                    .setMessage(error).setPositiveButton(android.R.string.ok, null).show();
+                        }
+                        Log.e(TAG, "GearCam recording recovery: " + error);
+                    }
+                });
+            });
+        } else {
+            applicationInterface.stoppedVideo(videoFileInfo.video_method, videoFileInfo.video_uri, videoFileInfo.video_filename);
+        }
         if( nextVideoFileInfo != null ) {
             // if nextVideoFileInfo is not-null, it means we received MEDIA_RECORDER_INFO_MAX_FILESIZE_APPROACHING but not
             // MEDIA_RECORDER_INFO_NEXT_OUTPUT_FILE_STARTED, so it is the application responsibility to create the zero-size
@@ -1288,7 +1361,7 @@ public class Preview implements SurfaceHolder.Callback, TextureView.SurfaceTextu
     private void restartVideo(boolean due_to_max_filesize) {
         if( MyDebug.LOG )
             Log.d(TAG, "restartVideo()");
-        if( video_recorder != null ) {
+        if( recordingVideo() ) {
             if( due_to_max_filesize ) {
                 long last_time = System.currentTimeMillis() - video_start_time;
                 video_accumulated_time += last_time;
@@ -1480,7 +1553,7 @@ public class Preview implements SurfaceHolder.Callback, TextureView.SurfaceTextu
             if( MyDebug.LOG ) {
                 Log.d(TAG, "close camera_controller");
             }
-            if( video_recorder != null ) {
+            if( recordingVideo() ) {
                 stopVideo(false);
             }
             // make sure we're into continuous video mode for closing
@@ -4996,6 +5069,7 @@ public class Preview implements SurfaceHolder.Callback, TextureView.SurfaceTextu
     }
 
     public void switchVideo(boolean during_startup, boolean change_user_pref) {
+        if (is_video) return; // GearCam never switches back to still photography.
         if( MyDebug.LOG )
             Log.d(TAG, "switchVideo()");
         if( camera_controller == null && during_startup ) {
@@ -5014,7 +5088,7 @@ public class Preview implements SurfaceHolder.Callback, TextureView.SurfaceTextu
         }
         boolean old_is_video = is_video;
         if( this.is_video ) {
-            if( video_recorder != null ) {
+            if( recordingVideo() ) {
                 stopVideo(false);
             }
             this.is_video = false;
@@ -5553,6 +5627,8 @@ public class Preview implements SurfaceHolder.Callback, TextureView.SurfaceTextu
      * @param continuous_fast_burst If true, then start a continuous fast burst.
      */
     public void takePicturePressed(boolean photo_snapshot, boolean continuous_fast_burst) {
+        if (photo_snapshot || !is_video) return;
+        if (finishingMix) { showToast(null, R.string.gearcam_finalizing); return; }
         if( MyDebug.LOG )
             Log.d(TAG, "takePicturePressed");
         if( camera_controller == null ) {
@@ -6027,6 +6103,7 @@ public class Preview implements SurfaceHolder.Callback, TextureView.SurfaceTextu
     /** Start video recording.
      */
     private void startVideoRecording(final boolean max_filesize_restart) {
+        if (finishingMix) return;
         if( MyDebug.LOG )
             Log.d(TAG, "startVideoRecording");
         focus_success = FOCUS_DONE; // clear focus rectangle (don't do for taking photos yet)
@@ -6034,6 +6111,14 @@ public class Preview implements SurfaceHolder.Callback, TextureView.SurfaceTextu
         test_started_next_output_file = false;
         nextVideoFileInfo = null;
         final VideoProfile profile = getVideoProfile();
+        if (profile.no_audio_permission) {
+            this.phase = PHASE_NORMAL;
+            applicationInterface.cameraInOperation(false, true);
+            applicationInterface.requestRecordAudioPermission();
+            return;
+        }
+        final boolean mixAudio = profile.record_audio;
+        profile.record_audio = false; // AudioRecord + our stereo bus supplies the audio track.
         VideoFileInfo info = createVideoFile(profile.fileExtension);
         if( info == null ) {
             videoFileInfo = new VideoFileInfo();
@@ -6054,6 +6139,11 @@ public class Preview implements SurfaceHolder.Callback, TextureView.SurfaceTextu
             if( MyDebug.LOG )
                 Log.d(TAG, "enable_sound? " + enable_sound);
             camera_controller.enableShutterSound(enable_sound); // Camera2 API can disable video sound too
+
+            if( mixAudio && canRecordLive(profile) ) {
+                startLiveRecording(profile, max_filesize_restart);
+                return;
+            }
 
             MediaRecorder local_video_recorder = new MediaRecorder();
             this.camera_controller.unlock();
@@ -6109,8 +6199,18 @@ public class Preview implements SurfaceHolder.Callback, TextureView.SurfaceTextu
 
             boolean told_app_starting = false; // true if we called applicationInterface.startingVideo()
             try {
+                if (mixAudio) {
+                    jamAudioSession = new JamAudioSession(getContext(), true, mixFailureListener());
+                    jamAudioSession.awaitReady();
+                    if( jamAudioSession.missingInputs != null )
+                        showToast(null, "Recording without " + jamAudioSession.missingInputs + " (not connected)");
+                }
                 ApplicationInterface.VideoMaxFileSize video_max_filesize = applicationInterface.getVideoMaxFileSizePref();
                 long max_filesize = video_max_filesize.max_filesize;
+                if (jamAudioSession != null) {
+                    long mixerLimit = jamAudioSession.maxVideoBytes(profile.videoBitRate);
+                    max_filesize = max_filesize == 0 ? mixerLimit : Math.min(max_filesize, mixerLimit);
+                }
                 //max_filesize = 15*1024*1024; // test
                 if( max_filesize > 0 ) {
                     if( MyDebug.LOG )
@@ -6124,6 +6224,7 @@ public class Preview implements SurfaceHolder.Callback, TextureView.SurfaceTextu
                     }
                 }
                 video_restart_on_max_filesize = video_max_filesize.auto_restart; // note, we set this even if max_filesize==0, as it will still apply when hitting device max filesize limit
+                if (jamAudioSession != null) video_restart_on_max_filesize = false; // the mix belongs to one file: stop at the cap
 
                 // handle restart timer
                 long video_max_duration = applicationInterface.getVideoMaxDurationPref();
@@ -6184,7 +6285,9 @@ public class Preview implements SurfaceHolder.Callback, TextureView.SurfaceTextu
                     Log.d(TAG, "about to start video recorder");
 
                 try {
+                    long audioOrigin = System.nanoTime();
                     local_video_recorder.start();
+                    if (jamAudioSession != null) startMixedAudio(jamAudioSession, audioOrigin);
                     if( test_video_failure ) {
                         if( MyDebug.LOG )
                             Log.d(TAG, "test_video_failure is true");
@@ -6241,6 +6344,7 @@ public class Preview implements SurfaceHolder.Callback, TextureView.SurfaceTextu
 				}.execute();*/
             }
             catch(IOException e) {
+                discardJamAudio();
                 MyDebug.logStackTrace(TAG, "failed to save video", e);
                 this.video_recorder = local_video_recorder;
                 if( told_app_starting ) {
@@ -6255,6 +6359,7 @@ public class Preview implements SurfaceHolder.Callback, TextureView.SurfaceTextu
                 videoFileInfo = new VideoFileInfo();
                 applicationInterface.cameraInOperation(false, true);
                 this.reconnectCamera(true);
+                showToast(null, getContext().getString(R.string.gearcam_audio_error, e.getMessage()));
             }
             catch(CameraControllerException e) {
                 MyDebug.logStackTrace(TAG, "camera exception starting video recorder", e);
@@ -6265,6 +6370,7 @@ public class Preview implements SurfaceHolder.Callback, TextureView.SurfaceTextu
                 failedToStartVideoRecorder(profile);
             }
             catch(NoFreeStorageException e) {
+                discardJamAudio();
                 MyDebug.logStackTrace(TAG, "nofreestorageexception starting video recorder", e);
                 this.video_recorder = local_video_recorder;
                 if( told_app_starting ) {
@@ -6281,6 +6387,120 @@ public class Preview implements SurfaceHolder.Callback, TextureView.SurfaceTextu
                 this.showToast(null, R.string.video_no_free_space);
             }
         }
+    }
+
+    /** Mixed takes need Camera2 (it records into any Surface), normal speed, and an MP4 the muxer can open. */
+    private boolean canRecordLive(VideoProfile profile) {
+        return camera_controller.supportsVideoSurface() && !video_high_speed
+                && profile.videoCaptureRate == profile.videoFrameRate
+                && profile.fileFormat == MediaRecorder.OutputFormat.MPEG_4
+                && (profile.videoCodec == MediaRecorder.VideoEncoder.H264 || profile.videoCodec == MediaRecorder.VideoEncoder.HEVC
+                    || profile.videoCodec == MediaRecorder.VideoEncoder.DEFAULT)
+                && (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O || videoFileInfo.video_method == ApplicationInterface.VideoMethod.FILE);
+    }
+
+    /** A mixed take on Camera2: camera frames and the audio mix are encoded straight into the final MP4 while
+     *  recording, so the take is complete moments after it stops, with no copying afterwards. */
+    private void startLiveRecording(VideoProfile profile, boolean max_filesize_restart) {
+        LiveMuxer muxer = null;
+        LiveVideoEncoder video = null;
+        boolean told_app_starting = false;
+        try {
+            camera_controller.initVideoRecorderPrePrepare(null); // the start sound, before audio capture begins
+            muxer = videoFileInfo.video_method == ApplicationInterface.VideoMethod.FILE ?
+                    new LiveMuxer(videoFileInfo.video_filename, 2) : new LiveMuxer(videoFileInfo.video_pfd_saf.getFileDescriptor(), 2);
+            muxer.setOrientationHint(getImageVideoRotation());
+            if( applicationInterface.getGeotaggingPref() && applicationInterface.getLocation() != null ) {
+                Location location = applicationInterface.getLocation();
+                muxer.setLocation((float)location.getLatitude(), (float)location.getLongitude());
+            }
+            jamAudioSession = new JamAudioSession(getContext(), true, mixFailureListener(), muxer);
+            jamAudioSession.awaitReady();
+            if( jamAudioSession.missingInputs != null )
+                showToast(null, "Recording without " + jamAudioSession.missingInputs + " (not connected)");
+            ApplicationInterface.VideoMaxFileSize video_max_filesize = applicationInterface.getVideoMaxFileSizePref();
+            long max_bytes = jamAudioSession.maxVideoBytes(profile.videoBitRate);
+            if( video_max_filesize.max_filesize > 0 )
+                max_bytes = Math.min(max_bytes, video_max_filesize.max_filesize);
+            video_restart_on_max_filesize = false; // one take, one file: stop at the cap
+            if( !max_filesize_restart )
+                video_accumulated_time = 0;
+            final CameraController controller = camera_controller;
+            final JamAudioSession audio = jamAudioSession;
+            final Activity activity = (Activity)getContext();
+            video = new LiveVideoEncoder(profile.videoCodec, profile.videoFrameWidth, profile.videoFrameHeight, profile.videoFrameRate,
+                    profile.videoBitRate, muxer, max_bytes, applicationInterface.getVideoMaxDurationPref(), new LiveVideoEncoder.Listener() {
+                        @Override public void firstFrame(long sensorTimeNs) {
+                            // Encoded moments after its exposure; a frame time far from now means an unexpected camera clock.
+                            long frameNs = controller.sensorTimeToMonotonicNs(sensorTimeNs), now = System.nanoTime();
+                            audio.startVideo(Math.abs(now - frameNs) < 2_000_000_000L ? frameNs : now);
+                        }
+                        @Override public void limitReached(int what) { activity.runOnUiThread(() -> onVideoInfo(what, 0)); }
+                        @Override public void failed(String message) { mixFailureListener().failed(message); }
+                    });
+            applicationInterface.cameraInOperation(true, true);
+            told_app_starting = true;
+            applicationInterface.startingVideo();
+            boolean want_photo_video_recording = supportsPhotoVideoRecording() && applicationInterface.usePhotoVideoRecording();
+            camera_controller.initVideoSurface(video.surface, want_photo_video_recording);
+            liveVideo = video;
+            videoRecordingStarted(max_filesize_restart);
+        }
+        catch(IOException | CameraControllerException | NoFreeStorageException | RuntimeException e) {
+            MyDebug.logStackTrace(TAG, "failed to start live recording", e);
+            if( video != null )
+                video.release();
+            discardJamAudio();
+            if( muxer != null )
+                muxer.abandon();
+            if( told_app_starting )
+                applicationInterface.stoppingVideo();
+            applicationInterface.deleteUnusedVideo(videoFileInfo.video_method, videoFileInfo.video_uri, videoFileInfo.video_filename);
+            videoFileInfo.close();
+            videoFileInfo = new VideoFileInfo();
+            applicationInterface.cameraInOperation(false, true);
+            reconnectCamera(true);
+            if( e instanceof CameraControllerException )
+                applicationInterface.onVideoRecordStartError(profile);
+            else
+                showToast(null, e instanceof NoFreeStorageException ? getContext().getString(R.string.video_no_free_space)
+                        : getContext().getString(R.string.gearcam_audio_error, e.getMessage()));
+        }
+    }
+
+    /** Ends a live take: closes the video track, gives the camera back to the preview, and publishes the MP4
+     *  once the audio track has closed too (a few hundred milliseconds). */
+    private void liveRecordingStopped() {
+        LiveVideoEncoder video = liveVideo;
+        liveVideo = null;
+        video_recorder_is_paused = false;
+        video.finish();
+        applicationInterface.cameraInOperation(false, true);
+        reconnectCamera(false);
+        video.release();
+        final JamAudioSession audio = jamAudioSession;
+        final VideoFileInfo file = videoFileInfo;
+        jamAudioSession = null;
+        videoFileInfo = new VideoFileInfo();
+        finishingMix = true;
+        final Activity activity = (Activity)getContext();
+        audio.finishLiveAsync((videoSaved, error) -> activity.runOnUiThread(() -> {
+            finishingMix = false;
+            file.close();
+            if( videoSaved ) {
+                applicationInterface.stoppedVideo(file.video_method, file.video_uri, file.video_filename);
+            }
+            else {
+                applicationInterface.deleteUnusedVideo(file.video_method, file.video_uri, file.video_filename);
+                applicationInterface.stoppedVideo(ApplicationInterface.VideoMethod.FILE, null, null);
+            }
+            if( error != null ) {
+                Log.e(TAG, "GearCam recording: " + error);
+                if( !activity.isFinishing() && !activity.isDestroyed() )
+                    new android.app.AlertDialog.Builder(activity).setTitle(videoSaved ? "Recording saved with a problem" : "Recording needs recovery")
+                            .setMessage(error).setPositiveButton(android.R.string.ok, null).show();
+            }
+        }));
     }
 
     private void videoRecordingStarted(boolean max_filesize_restart) {
@@ -6388,6 +6608,7 @@ public class Preview implements SurfaceHolder.Callback, TextureView.SurfaceTextu
     }
 
     private void failedToStartVideoRecorder(VideoProfile profile) {
+        discardJamAudio();
         applicationInterface.onVideoRecordStartError(profile);
         video_recorder.reset();
         video_recorder.release();
@@ -6403,6 +6624,7 @@ public class Preview implements SurfaceHolder.Callback, TextureView.SurfaceTextu
      *  This does nothing if isVideoRecording() returns false, or not on Android 7 or higher.
      */
     public void pauseVideo() {
+        if (jamAudioSession != null) return; // Mixed recordings use a continuous audio/video clock.
         if( MyDebug.LOG )
             Log.d(TAG, "pauseVideo");
         if( Build.VERSION.SDK_INT < Build.VERSION_CODES.N ) {
@@ -9124,7 +9346,7 @@ public class Preview implements SurfaceHolder.Callback, TextureView.SurfaceTextu
     }
 
     public boolean isVideoRecording() {
-        return video_recorder != null && video_start_time_set;
+        return recordingVideo() && video_start_time_set;
     }
 
     public boolean isVideoRecordingPaused() {
@@ -9149,7 +9371,8 @@ public class Preview implements SurfaceHolder.Callback, TextureView.SurfaceTextu
     }
 
     public int getMaxAmplitude() {
-        return video_recorder != null ? video_recorder.getMaxAmplitude() : 0;
+        JamAudioSession session = jamAudioSession;
+        return session == null ? 0 : (int) (32767 * Math.max(session.mixer.leftPeak, session.mixer.rightPeak));
     }
 
     /** Returns the frame rate that the preview's surface or canvas view should be updated.

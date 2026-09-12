@@ -37,6 +37,7 @@ public class PreferenceSubScreen extends PreferenceFragment implements SharedPre
     @Override
     public void onViewCreated(View view, Bundle savedInstanceState) {
         super.onViewCreated(view, savedInstanceState);
+        net.sourceforge.opencamera.audio.MixerSettings.configurePreferences(this);
 
         if( edge_to_edge_mode ) {
             MyPreferenceFragment.handleEdgeToEdge(view);

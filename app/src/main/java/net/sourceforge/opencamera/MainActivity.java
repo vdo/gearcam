@@ -256,6 +256,7 @@ public class MainActivity extends AppCompatActivity implements PreferenceFragmen
         super.onCreate(savedInstanceState);
 
         setContentView(R.layout.activity_main);
+        net.sourceforge.opencamera.audio.MixerSettings.enforceVideoOnly(this);
         PreferenceManager.setDefaultValues(this, R.xml.preferences, false); // initialise any unset preferences to their default values
         if( MyDebug.LOG )
             Log.d(TAG, "onCreate: time after setting default preference values: " + (System.currentTimeMillis() - debug_time));
@@ -653,7 +654,7 @@ public class MainActivity extends AppCompatActivity implements PreferenceFragmen
         // create notification channel - only needed on Android 8+
         // update: notifications now removed due to needing permissions on Android 13+
         /*if( Build.VERSION.SDK_INT >= Build.VERSION_CODES.O ) {
-            CharSequence name = "Open Camera Image Saving";
+            CharSequence name = "GearCam Media Saving";
             String description = "Notification channel for processing and saving images in the background";
             int importance = NotificationManager.IMPORTANCE_LOW;
             NotificationChannel channel = new NotificationChannel(CHANNEL_ID, name, importance);
@@ -1305,6 +1306,8 @@ public class MainActivity extends AppCompatActivity implements PreferenceFragmen
             debug_time = System.currentTimeMillis();
         }
         super.onResume();
+        if (audioStatusView == null) audioStatusView = new net.sourceforge.opencamera.audio.AudioStatusView(this);
+        audioStatusView.resume();
         this.app_is_paused = false; // must be set before initLocation() at least
 
         // this is intentionally true, not false, as the uncovering happens in DrawPreview when we receive frames from the camera after it's opened
@@ -1488,6 +1491,8 @@ public class MainActivity extends AppCompatActivity implements PreferenceFragmen
 
     @Override
     protected void onPause() {
+        if (audioStatusView != null) audioStatusView.pause();
+        if (audioMixerDialog != null) { audioMixerDialog.dismiss(); audioMixerDialog = null; }
         long debug_time = 0;
         if( MyDebug.LOG ) {
             Log.d(TAG, "onPause");
@@ -2355,35 +2360,26 @@ public class MainActivity extends AppCompatActivity implements PreferenceFragmen
     /**
      * Toggles Photo/Video mode
      */
-    public void clickedSwitchVideo(View view) {
-        if( MyDebug.LOG )
-            Log.d(TAG, "clickedSwitchVideo");
-        this.closePopup();
-        mainUI.destroyPopup(); // important as we don't want to use a cached popup, as we can show different options depending on whether we're in photo or video mode
+    private net.sourceforge.opencamera.audio.AudioStatusView audioStatusView;
+    private net.sourceforge.opencamera.audio.MixerDialog audioMixerDialog;
 
-        // In practice stopping the gyro sensor shouldn't be needed as (a) we don't show the switch
-        // photo/video icon when recording, (b) at the time of writing switching to video mode
-        // reopens the camera, which will stop panorama recording anyway, but we do this just to be
-        // safe.
-        applicationInterface.stopPanorama(true);
+    public void dismissAudioMixer() {
+        if (audioMixerDialog != null) { audioMixerDialog.dismiss(); audioMixerDialog = null; }
+    }
 
-        View switchVideoButton = findViewById(R.id.switch_video);
-        switchVideoButton.setEnabled(false); // prevent slowdown if user repeatedly clicks
-        applicationInterface.reset(false);
-        this.getApplicationInterface().getDrawPreview().setDimPreview(true);
-        this.preview.switchVideo(false, true);
-        switchVideoButton.setEnabled(true);
-
-        mainUI.setTakePhotoIcon();
-        mainUI.setPopupIcon(); // needed as turning to video mode or back can turn flash mode off or back on
-
-        // ensure icons invisible if they're affected by being in video mode or not (e.g., on-screen RAW icon)
-        // (if enabling them, we'll make the icon visible later on)
-        mainUI.getOnScreenIcons().checkDisableGUIIcons();
-
-        if( !block_startup_toast ) {
-            this.showPhotoVideoToast(true);
+    public void showAudioMixer() {
+        if (preview.isFinishingMix()) {
+            preview.showToast(null, R.string.gearcam_finalizing);
+            return;
         }
+        if (audioMixerDialog != null) audioMixerDialog.dismiss();
+        closePopup();
+        audioMixerDialog = new net.sourceforge.opencamera.audio.MixerDialog(this);
+        audioMixerDialog.show();
+    }
+
+    public void clickedSwitchVideo(View view) {
+        showAudioMixer();
     }
 
     public void clickedExposure(View view) {

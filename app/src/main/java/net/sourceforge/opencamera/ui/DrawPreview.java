@@ -1266,6 +1266,8 @@ public class DrawPreview {
             align_right = true;
         }
 
+        final int audio_top = location_y;
+        float info_width = 0;
         int first_line_height = 0;
         int first_line_xshift = 0;
         if( show_time_pref ) {
@@ -1350,6 +1352,7 @@ public class DrawPreview {
                     text_bounds_free_memory = new Rect();
                     p.getTextBounds(free_memory_gb_string, 0, free_memory_gb_string.length(), text_bounds_free_memory);
                 }
+                info_width = Math.max(info_width, p.measureText(free_memory_gb_string));
                 int height = applicationInterface.drawTextWithBackground(canvas, p, free_memory_gb_string, Color.WHITE, Color.BLACK, location_x, location_y, MyApplicationInterface.Alignment.ALIGNMENT_TOP, null, MyApplicationInterface.Shadow.SHADOW_OUTLINE, text_bounds_free_memory);
                 height += gap_y;
                 if( device_ui_rotation == 90 ) {
@@ -1432,6 +1435,7 @@ public class DrawPreview {
                     ae_started_scanning_ms = -1;
                 }
                 // can't cache the bounds rect, as the width may change significantly as the ISO or exposure values change
+                info_width = Math.max(info_width, p.measureText(iso_exposure_string));
                 int height = applicationInterface.drawTextWithBackground(canvas, p, iso_exposure_string, text_color, Color.BLACK, location_x, location_y, MyApplicationInterface.Alignment.ALIGNMENT_TOP, ybounds_text, MyApplicationInterface.Shadow.SHADOW_OUTLINE);
                 height += gap_y;
                 // only move location_y if we actually print something (because on old camera API, even if the ISO option has
@@ -1443,6 +1447,14 @@ public class DrawPreview {
                     location_y += height;
                 }
             }
+        }
+
+        if (camera_controller != null) {
+            if (show_time_pref && current_time_string != null)
+                info_width = Math.max(info_width, p.measureText(current_time_string) + first_line_xshift);
+            float meter_x = align_right ? location_x - info_width - 100 * scale_dp : location_x + info_width + 12 * scale_dp;
+            float meter_y = device_ui_rotation == 90 ? audio_top - 28 * scale_dp : audio_top;
+            net.sourceforge.opencamera.audio.CameraAudioMeters.draw(canvas, meter_x, meter_y, scale_dp, preview.getJamAudioSession());
         }
 
         // padding to align with earlier text

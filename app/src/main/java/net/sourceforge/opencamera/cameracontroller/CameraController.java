@@ -745,6 +745,21 @@ public abstract class CameraController {
      * @param want_photo_video_recording Whether support for taking photos whilst video recording is required. If this feature isn't supported, the option has no effect.
      */
     public abstract void initVideoRecorderPostPrepare(MediaRecorder video_recorder, boolean want_photo_video_recording) throws CameraControllerException;
+
+    /** Whether initVideoSurface() can record into any Surface (such as a video encoder's input). */
+    public boolean supportsVideoSurface() { return false; }
+    /** Like initVideoRecorderPostPrepare(), for a Surface instead of a MediaRecorder. */
+    public void initVideoSurface(android.view.Surface surface, boolean want_photo_video_recording) throws CameraControllerException {
+        throw new CameraControllerException();
+    }
+    /** A frame's sensor timestamp on the System.nanoTime() clock. */
+    public long sensorTimeToMonotonicNs(long sensorNs) { return sensorNs; }
+
+    public interface FrameTimeListener { void frameTime(long monotonicNs); }
+    /** One-shot: reports the System.nanoTime() at which the exposure began of the next frame the camera
+     *  completes. Returns false if this camera API cannot report frame times. */
+    public boolean setNextFrameListener(FrameTimeListener listener) { return false; }
+
     public abstract String getParametersString();
     public boolean captureResultIsAEScanning() {
         return false;
