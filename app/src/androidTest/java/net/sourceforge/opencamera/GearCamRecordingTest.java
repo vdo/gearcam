@@ -65,6 +65,8 @@ public class GearCamRecordingTest {
                 assertNull(settings.findPreference("preference_screen_processing_settings"));
                 assertNull(settings.findPreference("preference_burst_mode"));
                 assertNotNull(settings.findPreference("gearcam_audio_mixer"));
+                assertNotNull(settings.findPreference(net.sourceforge.opencamera.audio.RecordingPreferences.MODE));
+                assertNotNull(settings.findPreference("gearcam_save_folder"));
                 assertNotNull(settings.findPreference("preference_screen_video_settings"));
             });
         } finally {
@@ -77,7 +79,8 @@ public class GearCamRecordingTest {
         context.getSharedPreferences("gearcam_mixer", Context.MODE_PRIVATE).edit().clear()
                 .putStringSet("inputs", Collections.singleton("phone/0")).commit();
         PreferenceManager.getDefaultSharedPreferences(context).edit()
-                .putBoolean(PreferenceKeys.RecordAudioPreferenceKey, true).commit();
+                .putBoolean(PreferenceKeys.RecordAudioPreferenceKey, true)
+                .putString(PreferenceKeys.CameraAPIPreferenceKey, "preference_camera_api_camera2").commit();
         Intent intent = new Intent(context, MainActivity.class).putExtra("test_project", true);
         try (ActivityScenario<MainActivity> scenario = ActivityScenario.launch(intent)) {
             await(scenario, a -> a.getPreview().isPreviewStarted(), 15000);

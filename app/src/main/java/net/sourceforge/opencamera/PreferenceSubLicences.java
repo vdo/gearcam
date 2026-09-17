@@ -37,6 +37,12 @@ public class PreferenceSubLicences extends PreferenceSubScreen {
             });
         }
 
+        Preference codecs = new Preference(getActivity());
+        codecs.setTitle(R.string.gearcam_audio_codecs_license);
+        codecs.setSummary("LAME 3.100 · LGPL / libFLAC 1.5.0 · BSD");
+        codecs.setOnPreferenceClickListener(p -> { displayTextDialog(R.string.gearcam_audio_codecs_license, "audio_codecs_licenses.txt"); return true; });
+        getPreferenceScreen().addPreference(codecs);
+
         {
             final Preference pref = findPreference("preference_licence_androidx");
             pref.setOnPreferenceClickListener(new Preference.OnPreferenceClickListener() {

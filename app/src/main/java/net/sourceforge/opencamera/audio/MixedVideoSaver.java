@@ -87,31 +87,14 @@ final class MixedVideoSaver {
 
     static void saveMaster(Context context, File source, String sessionName) throws IOException {
         String name = "GearCam_" + sessionName + "_master.wav";
-        if (android.os.Build.VERSION.SDK_INT >= 29) {
-            android.content.ContentValues values = new android.content.ContentValues();
-            values.put(android.provider.MediaStore.Audio.Media.DISPLAY_NAME, name);
-            values.put(android.provider.MediaStore.Audio.Media.MIME_TYPE, "audio/wav");
-            values.put(android.provider.MediaStore.Audio.Media.RELATIVE_PATH, "Music/GearCam");
-            values.put(android.provider.MediaStore.Audio.Media.IS_PENDING, 1);
-            Uri destination = context.getContentResolver().insert(android.provider.MediaStore.Audio.Media.EXTERNAL_CONTENT_URI, values);
-            if (destination == null) throw new IOException("Cannot create WAV master in Music/GearCam");
-            try {
-                try (OutputStream out = context.getContentResolver().openOutputStream(destination, "w")) {
-                    if (out == null) throw new IOException("Cannot open WAV master destination");
-                    copyMaster(source, out);
-                }
-                values.clear(); values.put(android.provider.MediaStore.Audio.Media.IS_PENDING, 0);
-                context.getContentResolver().update(destination, values, null, null);
-            } catch (IOException | RuntimeException e) {
-                context.getContentResolver().delete(destination, null, null); throw e;
+        AudioDestination destination = new AudioDestination(context, name, "wav");
+        try {
+            try (OutputStream out = new android.os.ParcelFileDescriptor.AutoCloseOutputStream(
+                    android.os.ParcelFileDescriptor.dup(destination.descriptor.getFileDescriptor()))) {
+                copyMaster(source, out);
             }
-        } else {
-            File folder = new File(android.os.Environment.getExternalStoragePublicDirectory(android.os.Environment.DIRECTORY_MUSIC), "GearCam");
-            if (!folder.isDirectory() && !folder.mkdirs()) throw new IOException("Cannot create Music/GearCam");
-            File file = new File(folder, name);
-            try (OutputStream out = new FileOutputStream(file)) { copyMaster(source, out); }
-            android.media.MediaScannerConnection.scanFile(context, new String[] {file.getAbsolutePath()}, new String[] {"audio/wav"}, null);
-        }
+            destination.publish();
+        } catch (IOException | RuntimeException e) { destination.discard(); throw e; }
     }
 
     private static void copyMaster(File source, OutputStream target) throws IOException {

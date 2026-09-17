@@ -1308,6 +1308,18 @@ public class MainActivity extends AppCompatActivity implements PreferenceFragmen
         super.onResume();
         if (audioStatusView == null) audioStatusView = new net.sourceforge.opencamera.audio.AudioStatusView(this);
         audioStatusView.resume();
+        if (usbAudioDevices == null) usbAudioDevices = new net.sourceforge.opencamera.audio.UsbAudioDevices(this, () -> {
+            if (audioMixerDialog != null) audioMixerDialog.refreshDevices();
+        });
+        usbAudioDevices.resume();
+        // Audio Config and the top-level folder picker share the camera's SAF destination/history.
+        SharedPreferences recordingPrefs = PreferenceManager.getDefaultSharedPreferences(this);
+        if (recordingPrefs.getBoolean(PreferenceKeys.UsingSAFPreferenceKey, false)) {
+            String folder = recordingPrefs.getString(PreferenceKeys.SaveLocationSAFPreferenceKey, "");
+            if (!folder.isEmpty()) saveLocationHandler.updateFolderHistorySAF(folder);
+        }
+        if (net.sourceforge.opencamera.audio.RecordingPreferences.audioOnly(this))
+            startActivity(new Intent(this, net.sourceforge.opencamera.audio.AudioRecorderActivity.class));
         this.app_is_paused = false; // must be set before initLocation() at least
 
         // this is intentionally true, not false, as the uncovering happens in DrawPreview when we receive frames from the camera after it's opened
@@ -1400,7 +1412,7 @@ public class MainActivity extends AppCompatActivity implements PreferenceFragmen
 
         applicationInterface.reset(false); // should be called before opening the camera in preview.onResume()
 
-        if( !camera_in_background ) {
+        if( !camera_in_background && !net.sourceforge.opencamera.audio.RecordingPreferences.audioOnly(this) ) {
             // don't restart camera if we're showing a dialog or settings
             preview.onResume();
         }
@@ -1492,6 +1504,7 @@ public class MainActivity extends AppCompatActivity implements PreferenceFragmen
     @Override
     protected void onPause() {
         if (audioStatusView != null) audioStatusView.pause();
+        if (usbAudioDevices != null) usbAudioDevices.pause();
         if (audioMixerDialog != null) { audioMixerDialog.dismiss(); audioMixerDialog = null; }
         long debug_time = 0;
         if( MyDebug.LOG ) {
@@ -2360,6 +2373,8 @@ public class MainActivity extends AppCompatActivity implements PreferenceFragmen
     /**
      * Toggles Photo/Video mode
      */
+    private net.sourceforge.opencamera.audio.UsbAudioDevices usbAudioDevices;
+    public net.sourceforge.opencamera.audio.UsbAudioDevices getUsbAudioDevices() { return usbAudioDevices; }
     private net.sourceforge.opencamera.audio.AudioStatusView audioStatusView;
     private net.sourceforge.opencamera.audio.MixerDialog audioMixerDialog;
 
@@ -4450,6 +4465,7 @@ public class MainActivity extends AppCompatActivity implements PreferenceFragmen
             Log.d(TAG, "onActivityResult: " + requestCode);
 
         super.onActivityResult(requestCode, resultCode, resultData);
+        if (net.sourceforge.opencamera.audio.RecordingPreferences.folderResult(this, requestCode, resultCode, resultData)) return;
 
         switch( requestCode ) {
             case CHOOSE_SAVE_FOLDER_SAF_CODE:
@@ -6160,6 +6176,7 @@ public class MainActivity extends AppCompatActivity implements PreferenceFragmen
             Log.d(TAG, "onRequestPermissionsResult: requestCode " + requestCode);
         super.onRequestPermissionsResult(requestCode, permissions, grantResults);
         permissionHandler.onRequestPermissionsResult(requestCode, grantResults);
+        if (usbAudioDevices != null) usbAudioDevices.refresh();
     }
 
     public void restartOpenCamera() {

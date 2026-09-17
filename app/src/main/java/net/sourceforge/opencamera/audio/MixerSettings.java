@@ -95,7 +95,7 @@ public final class MixerSettings {
                 String.format("USB audio %04x:%04x", device.getVendorId(), device.getProductId()) : value;
     }
 
-    private static boolean hasAudioInterface(UsbDevice device) {
+    static boolean hasAudioInterface(UsbDevice device) {
         if (device.getDeviceClass() == UsbConstants.USB_CLASS_AUDIO) return true;
         for (int i = 0; i < device.getInterfaceCount(); i++) {
             UsbInterface usbInterface = device.getInterface(i);
@@ -232,6 +232,7 @@ public final class MixerSettings {
     }
 
     public static void configurePreferences(PreferenceFragment fragment) {
+        RecordingPreferences.configure(fragment);
         removePreferences(fragment.getPreferenceScreen(), new String[] {
                 "preference_burst_mode", "preference_burst_interval", "preference_screen_photo_settings",
                 "preference_screen_processing_settings", "preference_show_auto_level", "preference_show_cycle_raw",

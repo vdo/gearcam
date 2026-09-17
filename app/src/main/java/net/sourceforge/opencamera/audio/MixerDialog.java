@@ -42,14 +42,15 @@ import java.util.Set;
 public final class MixerDialog {
     private static final String USB_PERMISSION = "app.gearcam.USB_PERMISSION";
     private static final int BG = 0xff0d141c, PANEL = 0xff19232f, TEXT = 0xffe4edf5, MUTED = 0xff96aabb, ACCENT = 0xff66dec0;
-    private final MainActivity activity;
+    private final android.app.Activity activity;
+    private final UsbAudioDevices devices;
+    private final Runnable onClosed;
     private final MixerSettings settings;
     private final Handler handler = new Handler(Looper.getMainLooper());
     private final List<Meter> meters = new ArrayList<>();
     private final AudioManager audioManager;
     private final UsbManager usbManager;
     private boolean usbReceiverRegistered;
-    private final Set<String> askedUsb = new HashSet<>(); // one access request per device per visit
     private JamAudioSession monitor;
     private final JamAudioSession recordingSession;
     private final LinearLayout channels;
@@ -76,12 +77,17 @@ public final class MixerDialog {
     };
 
     public MixerDialog(MainActivity activity) {
-        this.activity = activity;
+        this(activity, activity.getPreview().getJamAudioSession(), activity.getUsbAudioDevices(),
+                () -> activity.getPreview().takePicturePressed(false, false), () -> {});
+    }
+
+    public MixerDialog(android.app.Activity activity, JamAudioSession recordingSession, UsbAudioDevices devices, Runnable stopTake, Runnable onClosed) {
+        this.activity = activity; this.recordingSession = recordingSession; this.devices = devices; this.onClosed = onClosed;
         compact = activity.getResources().getConfiguration().orientation == android.content.res.Configuration.ORIENTATION_LANDSCAPE;
         settings = new MixerSettings(activity);
         audioManager = (AudioManager) activity.getSystemService(Context.AUDIO_SERVICE);
         usbManager = (UsbManager) activity.getSystemService(Context.USB_SERVICE);
-        recordingSession = activity.getPreview().getJamAudioSession();
+
         dialog = new Dialog(activity, android.R.style.Theme_Material_NoActionBar);
         dialog.requestWindowFeature(Window.FEATURE_NO_TITLE);
         LinearLayout root = column(); root.setBackgroundColor(BG); root.setPadding(dp(12), dp(8), dp(12), dp(8));
@@ -93,7 +99,7 @@ public final class MixerDialog {
         LinearLayout toolbar = row();
         TextView title = text("GEARCAM MIXER", 16, TEXT); title.setTypeface(null, Typeface.BOLD); title.setSingleLine(true); title.setEllipsize(android.text.TextUtils.TruncateAt.END);
         toolbar.addView(title, new LinearLayout.LayoutParams(0, -2, 1));
-        Button done = button("Camera"); done.setOnClickListener(v -> dismiss()); toolbar.addView(done);
+        Button done = button(RecordingPreferences.audioOnly(activity) ? "Recorder" : "Camera"); done.setOnClickListener(v -> dismiss()); toolbar.addView(done);
         root.addView(toolbar);
         status = text(recordingSession == null ? "48 kHz  ·  High-resolution mix  ·  Swipe inputs sideways" : "RECORDING  ·  Faders, balance, mute, filters and gate are live", 12, MUTED);
         root.addView(status);
@@ -110,7 +116,7 @@ public final class MixerDialog {
         Button reset = button("Reset clips"); reset.setOnClickListener(v -> { if (active() != null) active().mixer.resetClips(); }); busControls.addView(reset);
         if (recordingSession != null) {
             Button stop = button("Stop take"); stop.setTextColor(0xffff8275);
-            stop.setOnClickListener(v -> { dismiss(); activity.getPreview().takePicturePressed(false, false); }); busControls.addView(stop);
+            stop.setOnClickListener(v -> { dismiss(); stopTake.run(); }); busControls.addView(stop);
         }
         bus.addView(busControls);
         busMeters = column();
@@ -208,13 +214,6 @@ public final class MixerDialog {
                 addStrip(input, c, stereo);
             }
         }
-        // A selected interface that is plugged in but not allowed yet: ask once, so gear reconnects on its own.
-        if (recordingSession == null && monitor == null && !starting) {
-            for (MixerSettings.Input input : inputs) {
-                if (!input.directUsb || usbManager.hasPermission(input.usbDevice) || !settings.selected(input)) continue;
-                if (askedUsb.add(input.key)) requestUsbPermission(input);
-            }
-        }
         if (!missing.isEmpty()) {
             LinearLayout strip = strip(); strip.addView(text("DISCONNECTED", 12, 0xffff8275));
             strip.addView(text(MixerSettings.describe(missing) + " is not connected. It returns on its own when "
@@ -268,7 +267,7 @@ public final class MixerDialog {
         gain.setGravity(Gravity.CENTER); strip.addView(gain);
         LinearLayout faders = row();
         // The master bar above the inputs takes ~100 dp of height; size faders so a strip fits a phone screen.
-        int faderHeight = Math.max(120, Math.min(220, (int) (activity.getResources().getDisplayMetrics().heightPixels / activity.getResources().getDisplayMetrics().density) - 560));
+        int faderHeight = Math.max(compact ? 96 : 120, Math.min(220, (int) (activity.getResources().getDisplayMetrics().heightPixels / activity.getResources().getDisplayMetrics().density) - 560));
         MixerFader fader = new MixerFader(activity, settings.preferences.getFloat(key + "/gain", 0), title + " gain", value -> { gain.setText(String.format(Locale.getDefault(), "%+.1f dB", value)); settings.preferences.edit().putFloat(key + "/gain", value).apply(); });
         faders.addView(fader, new LinearLayout.LayoutParams(0, dp(faderHeight), 1));
         LinearLayout values = row();
@@ -299,8 +298,8 @@ public final class MixerDialog {
             controls.addView(panLabel);
             controls.addView(panSlider, new LinearLayout.LayoutParams(-1, dp(40))); controls.addView(routing);
             LinearLayout gainStrip = column(); gainStrip.setPadding(dp(8), 0, 0, 0); gainStrip.addView(gain);
-            fader.getLayoutParams().height = dp(120);
-            for (int i = 1; i < faders.getChildCount(); i++) faders.getChildAt(i).getLayoutParams().height = dp(84);
+            fader.getLayoutParams().height = dp(faderHeight);
+            for (int i = 1; i < faders.getChildCount(); i++) faders.getChildAt(i).getLayoutParams().height = dp(faderHeight - 36);
             gainStrip.addView(faders); gainStrip.addView(values);
             LinearLayout body = row(); body.setGravity(Gravity.TOP);
             body.addView(controls, new LinearLayout.LayoutParams(dp(114), -2));
@@ -312,13 +311,11 @@ public final class MixerDialog {
         return (stereo ? "Balance" : "Pan") + " · " + (value == 0 ? "Center" : Math.round(Math.abs(value) * 100) + "% " + (value < 0 ? "L" : "R"));
     }
 
+    public void refreshDevices() { devicesChanged(); }
+
     private void requestUsbPermission(MixerSettings.Input input) {
-        if (activity.checkSelfPermission(Manifest.permission.RECORD_AUDIO) != PackageManager.PERMISSION_GRANTED) {
-            activity.requestPermissions(new String[] {Manifest.permission.RECORD_AUDIO}, 410);
-            status.setText("Allow microphone access, then connect USB"); return;
-        }
-        Intent intent = new Intent(USB_PERMISSION).setPackage(activity.getPackageName());
-        usbManager.requestPermission(input.usbDevice, PendingIntent.getBroadcast(activity, input.usbDevice.getDeviceId(), intent, PendingIntent.FLAG_UPDATE_CURRENT | PendingIntent.FLAG_MUTABLE));
+        devices.request(input.usbDevice);
+        status.setText("Allow access in Android’s dialog; the device will appear automatically.");
     }
 
     private void showOptions() {
@@ -330,7 +327,7 @@ public final class MixerDialog {
             public void onStartTrackingTouch(SeekBar v) { }
             public void onStopTrackingTouch(SeekBar v) { }
         }); content.addView(sync);
-        content.addView(text("Positive delay moves audio later. Check sync with a clap.\n\n48 kHz throughout: no upsampling. Direct USB chooses its highest available bit depth. The 24-bit WAV master saves to Music/GearCam (about 1 GB/hour). MP4 audio is AAC.\n\nRed input clipping means the source or adapter overloaded. Lower its hardware gain; a fader cannot repair distortion. Stereo links share gain, balance, mute, filters and recording selection.\n\nHPF removes DC and infrasonic content below 30 Hz, LPF ultrasonic content above 20 kHz: both 3-pole Butterworth (−18 dB/octave), freeing headroom.\n\nNoise gate (phone mic) learns the background and turns it down 20 dB between phrases, so hum and room noise drop out in the pauses. It cannot remove noise under the voice.\n\nDrag a fader vertically. Swipe between strips to see more inputs. Soundcheck uses the recording path without saving.", 13, TEXT));
+        content.addView(text("Positive delay moves audio later. Check sync with a clap.\n\n48 kHz throughout: no upsampling. Direct USB chooses its highest available bit depth. The 24-bit WAV master uses your chosen save folder, or Music/GearCam by default (about 1 GB/hour). MP4 audio is AAC.\n\nRed input clipping means the source or adapter overloaded. Lower its hardware gain; a fader cannot repair distortion. Stereo links share gain, balance, mute, filters and recording selection.\n\nHPF removes DC and infrasonic content below 30 Hz, LPF ultrasonic content above 20 kHz: both 3-pole Butterworth (−18 dB/octave), freeing headroom.\n\nNoise gate (phone mic) learns the background and turns it down 20 dB between phrases, so hum and room noise drop out in the pauses. It cannot remove noise under the voice.\n\nDrag a fader vertically. Swipe between strips to see more inputs. Soundcheck uses the recording path without saving.", 13, TEXT));
         new android.app.AlertDialog.Builder(activity, android.app.AlertDialog.THEME_DEVICE_DEFAULT_DARK).setTitle("Recording settings").setView(content).setPositiveButton("Done", null).show();
     }
 
@@ -405,9 +402,15 @@ public final class MixerDialog {
     }
 
     private void close() {
+        JamAudioSession closing = monitor;
         closed = true; handler.removeCallbacks(tick); stopMonitor();
         audioManager.unregisterAudioDeviceCallback(deviceCallback);
         if (usbReceiverRegistered) activity.unregisterReceiver(usbReceiver);
+        if (closing == null) onClosed.run();
+        else new Thread(() -> {
+            try { closing.awaitStopped(); } catch (java.io.IOException ignored) { }
+            handler.post(onClosed);
+        }, "GearCam close soundcheck").start();
     }
 
     private static final class Meter {

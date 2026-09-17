@@ -31,6 +31,16 @@ public final class JamAudioSession {
     /** videoSaved: the MP4 is complete and playable; error: what went wrong, if anything (audio, WAV master). */
     public interface LiveListener { void finished(boolean videoSaved, String error); }
     private static final int BLOCK = 480;
+    // A new take waits for the previous soundcheck/take to release native interfaces completely.
+    private static final java.util.concurrent.Semaphore INPUT_LEASE = new java.util.concurrent.Semaphore(1, true);
+    private boolean ownsInputs;
+    private void acquireInputs() throws IOException {
+        try {
+            if (!INPUT_LEASE.tryAcquire(2, TimeUnit.SECONDS)) throw new IOException("Previous audio inputs are still closing. Try again in a moment.");
+            ownsInputs = true;
+        } catch (InterruptedException e) { Thread.currentThread().interrupt(); throw new IOException("Audio startup interrupted", e); }
+    }
+    private void releaseInputs() { if (ownsInputs) { ownsInputs = false; INPUT_LEASE.release(); } }
     private static final long LATENCY_NS = 150_000_000L;
     private final Context context;
     private final MixerSettings settings;
@@ -51,7 +61,21 @@ public final class JamAudioSession {
     private volatile boolean audioFinished;
     private final boolean recording;
     private final long syncOffsetNs;
+    private final long audioFrameLimit;
     private AacEncoder encoder;
+    private AudioFileEncoder audioOnlyEncoder;
+    private AudioDestination destination;
+    private final float[] scope = new float[960];
+    public synchronized void copyWaveform(float[] target) { System.arraycopy(scope, 0, target, 0, Math.min(scope.length, target.length)); }
+    private synchronized void updateWaveform(float[] samples, int frames) {
+        System.arraycopy(samples, 0, scope, 0, frames * 2);
+        java.util.Arrays.fill(scope, frames * 2, scope.length, 0);
+    }
+    public interface AudioSaveListener { void finished(Uri uri, String error); }
+    public void awaitStopped() throws IOException {
+        try { if (!finished.await(6, TimeUnit.SECONDS)) throw new IOException("Previous input session is still closing"); }
+        catch (InterruptedException e) { Thread.currentThread().interrupt(); throw new IOException(e); }
+    }
     private WavMaster master;
     private File masterFile;
     private final LiveMuxer live; // a take written straight into its MP4; null: soundcheck, or a separate .m4a
@@ -62,9 +86,18 @@ public final class JamAudioSession {
 
     /** @param live the take's MP4, which receives the mix as its audio track while recording. */
     public JamAudioSession(Context context, boolean recording, FailureListener listener, LiveMuxer live) throws IOException {
+        this(context, recording, listener, live, null);
+    }
+
+    public static JamAudioSession audioOnly(Context context, String format, FailureListener listener) throws IOException {
+        return new JamAudioSession(context, true, listener, null, format);
+    }
+
+    private JamAudioSession(Context context, boolean recording, FailureListener listener, LiveMuxer live, String audioFormat) throws IOException {
         this.context = context.getApplicationContext(); this.recording = recording; this.live = live;
         this.listener = listener; settings = new MixerSettings(context);
-        syncOffsetNs = Math.round(settings.preferences.getFloat("sync_ms", 0) * 1_000_000.0);
+        audioFrameLimit = "wav".equals(audioFormat) ? (0xfffffff0L - 44) / 6 : Long.MAX_VALUE;
+        syncOffsetNs = audioFormat == null ? Math.round(settings.preferences.getFloat("sync_ms", 0) * 1_000_000.0) : 0;
         List<MixerSettings.Input> available = MixerSettings.inputs(context);
         Set<String> missing = new HashSet<>(settings.preferences.getStringSet("inputs", java.util.Collections.singleton("phone/0")));
         int channelCount = 0;
@@ -91,10 +124,15 @@ public final class JamAudioSession {
         audioFile = recording && live == null ? new File(directory, "mix.m4a") : null;
         preferencesListener = (prefs, key) -> applySettings();
         try {
+            acquireInputs();
             if (recording) {
                 if (!directory.mkdirs()) throw new IOException("Cannot create recording recovery folder");
-                encoder = live != null ? new AacEncoder(live) : new AacEncoder(audioFile);
-                if (settings.preferences.getBoolean("wav_master", true)) {
+                if (audioFormat != null) {
+                    destination = new AudioDestination(context, "GearCam_" + directory.getName() + "." + audioFormat, audioFormat);
+                    if (destination.availableBytes() < 20_000_000L) throw new IOException("Not enough free space in the save folder");
+                    audioOnlyEncoder = new AudioFileEncoder(destination.descriptor, audioFormat);
+                } else encoder = live != null ? new AacEncoder(live) : new AacEncoder(audioFile);
+                if (audioFormat == null && settings.preferences.getBoolean("wav_master", true)) {
                     masterFile = new File(directory, "master.wav");
                     master = new WavMaster(masterFile);
                 }
@@ -109,6 +147,9 @@ public final class JamAudioSession {
             if (encoder != null) encoder.close();
             if (master != null) try { master.close(); } catch (IOException closeError) { audioFinished = false; fail("Cannot finish WAV master: " + closeError.getMessage()); }
             settings.preferences.unregisterOnSharedPreferenceChangeListener(preferencesListener);
+            if (audioOnlyEncoder != null) try { audioOnlyEncoder.close(); } catch (IOException ignored) { }
+            if (destination != null) destination.discard();
+            releaseInputs();
             cleanup();
             throw new IOException("Cannot open selected audio inputs: " + e.getMessage(), e);
         }
@@ -157,7 +198,7 @@ public final class JamAudioSession {
     public void cancelAndDiscard() {
         cancel();
         new Thread(() -> {
-            try { if (finished.await(5, TimeUnit.SECONDS)) cleanup(); }
+            try { if (finished.await(5, TimeUnit.SECONDS)) { if (destination != null) destination.discard(); cleanup(); } }
             catch (InterruptedException e) { Thread.currentThread().interrupt(); }
         }, "GearCam discard").start();
     }
@@ -203,6 +244,24 @@ public final class JamAudioSession {
         }, "GearCam finish").start();
     }
 
+    /** Audio-only encoders stream directly into the selected destination. */
+    public void finishAudioAsync(AudioSaveListener callback) {
+        stopVideo();
+        new Thread(() -> {
+            String error = null; Uri saved = null;
+            try {
+                awaitStopped();
+                if (!audioFinished) throw new IOException(failure == null ? "Audio could not be finalized" : failure);
+                destination.publish(); saved = destination.uri;
+                error = failure; cleanup();
+            } catch (Exception e) {
+                error = e.getMessage() + "\nAudio destination: " + destination.uri;
+                try { destination.close(); } catch (IOException ignored) { }
+            }
+            callback.finished(saved, error);
+        }, "GearCam finish audio").start();
+    }
+
     private void cleanup() {
         if (directory == null) return;
         File[] files = directory.listFiles();
@@ -237,6 +296,7 @@ public final class JamAudioSession {
                 }
                 long time = writing ? originNs + frame * 1_000_000_000L / MixerSettings.RATE : monitorNs;
                 if (writing && stopNs >= 0 && time >= stopNs) break;
+                if (writing && frame >= audioFrameLimit) { fail("WAV reached its 4 GB limit. Recording stopped."); break; }
                 if (!writing && failure != null) break;
                 long waitNs = time + LATENCY_NS + (writing ? Math.max(0, -syncOffsetNs) : 0) + BLOCK * 1_000_000_000L / MixerSettings.RATE - System.nanoTime();
                 if (waitNs > 0) {
@@ -244,6 +304,7 @@ public final class JamAudioSession {
                     continue;
                 }
                 int count = writing && stopNs >= 0 ? (int) Math.min(BLOCK, Math.max(0, (stopNs - time) * MixerSettings.RATE / 1_000_000_000)) : BLOCK;
+                if (writing) count = (int) Math.min(count, audioFrameLimit - frame);
                 if (count == 0) break;
                 int offset = 0;
                 for (int i = 0; i < captures.size(); i++) {
@@ -256,10 +317,22 @@ public final class JamAudioSession {
                         fail(capture.input.label + ": audio stopped arriving. Recording stopped.");
                 }
                 mixer.mix(input, output, count);
-                if (writing) { encoder.write(output, count); if (master != null) master.write(output, count); frame += count; }
+                updateWaveform(output, count);
+                if (writing) {
+                    if (encoder != null) encoder.write(output, count);
+                    if (audioOnlyEncoder != null) {
+                        audioOnlyEncoder.write(output, count);
+                        if (frame % MixerSettings.RATE == 0 && destination.availableBytes() < 10_000_000L)
+                            fail("Save location is almost full. Recording stopped.");
+                    }
+                    if (master != null) master.write(output, count); frame += count;
+                }
                 else monitorNs += count * 1_000_000_000L / MixerSettings.RATE;
             }
-            if (writing && running && encoder != null) { encoder.finish(); audioFinished = true; }
+            if (writing && running) {
+                if (encoder != null) encoder.finish();
+                audioFinished = true;
+            }
         } catch (Exception e) {
             fail("Audio processing failed: " + e.getMessage());
         } finally {
@@ -269,6 +342,9 @@ public final class JamAudioSession {
             if (encoder != null) encoder.close();
             if (master != null) try { master.close(); } catch (IOException closeError) { audioFinished = false; fail("Cannot finish WAV master: " + closeError.getMessage()); }
             settings.preferences.unregisterOnSharedPreferenceChangeListener(preferencesListener);
+            if (audioOnlyEncoder != null) try { audioOnlyEncoder.close(); }
+            catch (IOException e) { audioFinished = false; fail("Cannot finish audio: " + e.getMessage()); }
+            releaseInputs();
             finished.countDown();
         }
     }

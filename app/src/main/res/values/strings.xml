@@ -1111,4 +1111,5 @@
             <li>Various other improvements and bug fixes.\n</li>
         </ul>
     </string>
+    <string name="gearcam_audio_codecs_license" translatable="false">MP3 and FLAC encoder licenses</string>
 </resources>

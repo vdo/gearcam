@@ -948,6 +948,7 @@ public class MyPreferenceFragment extends PreferenceFragment implements OnShared
         super.onResume();
 
         setBackground(this);
+        net.sourceforge.opencamera.audio.RecordingPreferences.configure(this);
 
         SharedPreferences sharedPreferences = PreferenceManager.getDefaultSharedPreferences(this.getActivity());
         sharedPreferences.registerOnSharedPreferenceChangeListener(this);
@@ -1015,6 +1016,7 @@ public class MyPreferenceFragment extends PreferenceFragment implements OnShared
             return;
         }
 
+        net.sourceforge.opencamera.audio.RecordingPreferences.configure(this);
         Preference pref = findPreference(key);
         handleOnSharedPreferenceChanged(prefs, key, pref);
     }

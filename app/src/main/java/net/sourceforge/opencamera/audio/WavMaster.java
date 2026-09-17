@@ -2,21 +2,25 @@ package net.sourceforge.opencamera.audio;
 
 import java.io.File;
 import java.io.IOException;
-import java.io.RandomAccessFile;
+import java.io.FileOutputStream;
 
 /** Lossless PCM24 copy of the stereo mix. No sample-rate increase or lossy encoding. */
 final class WavMaster implements AutoCloseable {
-    private final RandomAccessFile output;
+    private final FileOutputStream output;
     private final byte[] block = new byte[480 * 6];
     private long bytes;
     private boolean closed;
 
     WavMaster(File file) throws IOException {
-        output = new RandomAccessFile(file, "rw");
-        output.setLength(0);
-        output.writeBytes("RIFF"); le(36, 4); output.writeBytes("WAVEfmt "); le(16, 4);
+        this(new FileOutputStream(file));
+    }
+
+    WavMaster(FileOutputStream output) throws IOException {
+        this.output = output;
+        output.getChannel().truncate(0);
+        ascii("RIFF"); le(36, 4); ascii("WAVEfmt "); le(16, 4);
         le(1, 2); le(2, 2); le(MixerSettings.RATE, 4); le(MixerSettings.RATE * 6, 4);
-        le(6, 2); le(24, 2); output.writeBytes("data"); le(0, 4);
+        le(6, 2); le(24, 2); ascii("data"); le(0, 4);
     }
 
     void write(float[] pcm, int frames) throws IOException {
@@ -31,6 +35,8 @@ final class WavMaster implements AutoCloseable {
         }
     }
 
+    private void ascii(String text) throws IOException { output.write(text.getBytes(java.nio.charset.StandardCharsets.US_ASCII)); }
+
     private void le(long value, int count) throws IOException {
         for (int i = 0; i < count; i++) output.write((int) (value >> (i * 8)) & 255);
     }
@@ -38,7 +44,7 @@ final class WavMaster implements AutoCloseable {
     @Override public void close() throws IOException {
         if (closed) return;
         closed = true;
-        try { output.seek(4); le(bytes + 36, 4); output.seek(40); le(bytes, 4); }
+        try { output.getChannel().position(4); le(bytes + 36, 4); output.getChannel().position(40); le(bytes, 4); }
         finally { output.close(); }
     }
 }
