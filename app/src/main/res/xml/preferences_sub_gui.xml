@@ -114,7 +114,7 @@
         android:title="@string/preference_show_cycle_lock_orientation"
         android:summary="@string/preference_show_cycle_lock_orientation_summary"
         android:icon="@drawable/mobile_unlock_48px"
-        android:defaultValue="false"
+        android:defaultValue="true"
         />
 
     <!--  if we move this to another PreferenceGroup, we should update code to remove this Preference -->

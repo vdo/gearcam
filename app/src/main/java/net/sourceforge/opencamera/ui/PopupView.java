@@ -1055,24 +1055,6 @@ public class PopupView extends LinearLayout {
                 if( MyDebug.LOG )
                     Log.d(TAG, "PopupView time 15: " + (System.nanoTime() - debug_time));
 
-                List<String> supported_color_effects = preview.getSupportedColorEffects();
-                List<String> supported_color_effects_entries = null;
-                if( supported_color_effects != null ) {
-                    supported_color_effects_entries = new ArrayList<>();
-                    for(String value : supported_color_effects) {
-                        String entry = main_activity.getMainUI().getEntryForColorEffect(value);
-                        supported_color_effects_entries.add(entry);
-                    }
-                }
-                addRadioOptionsToPopup(sharedPreferences, supported_color_effects_entries, supported_color_effects, getResources().getString(R.string.color_effect), PreferenceKeys.ColorEffectPreferenceKey, CameraController.COLOR_EFFECT_DEFAULT, null, "TEST_COLOR_EFFECT", new RadioOptionsListener() {
-                    @Override
-                    public void onClick(String selected_value) {
-                        if( preview.getCameraController() != null ) {
-                            preview.getCameraController().setColorEffect(selected_value);
-                        }
-                        // keep popup open
-                    }
-                });
                 if( MyDebug.LOG )
                     Log.d(TAG, "PopupView time 16: " + (System.nanoTime() - debug_time));
             }

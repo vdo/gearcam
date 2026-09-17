@@ -1,0 +1,15 @@
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    android:layout_width="match_parent" android:layout_height="wrap_content"
+    android:minHeight="76dp" android:gravity="center_vertical" android:padding="16dp"
+    android:background="@drawable/studio_preference" android:orientation="horizontal">
+    <ImageView android:id="@android:id/icon" android:layout_width="24dp" android:layout_height="24dp"
+        android:layout_marginEnd="12dp" android:importantForAccessibility="no" android:visibility="gone" />
+    <LinearLayout android:layout_width="0dp" android:layout_weight="1" android:layout_height="wrap_content" android:orientation="vertical">
+        <TextView android:id="@android:id/title" android:layout_width="match_parent" android:layout_height="wrap_content"
+            android:textSize="16sp" android:fontFamily="sans-serif-medium" android:textColor="?attr/studioText" />
+        <TextView android:id="@android:id/summary" android:layout_width="match_parent" android:layout_height="wrap_content"
+            android:layout_marginTop="5dp" android:textSize="13sp" android:textColor="?attr/studioMuted" android:visibility="gone" />
+    </LinearLayout>
+    <LinearLayout android:id="@android:id/widget_frame" android:layout_width="wrap_content" android:layout_height="wrap_content"
+        android:layout_marginStart="12dp" android:gravity="center_vertical" android:orientation="vertical" />
+</LinearLayout>

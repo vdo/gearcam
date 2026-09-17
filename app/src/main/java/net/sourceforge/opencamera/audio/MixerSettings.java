@@ -233,8 +233,9 @@ public final class MixerSettings {
 
     public static void configurePreferences(PreferenceFragment fragment) {
         RecordingPreferences.configure(fragment);
+        net.sourceforge.opencamera.ui.StudioTheme.addPreference(fragment);
         removePreferences(fragment.getPreferenceScreen(), new String[] {
-                "preference_burst_mode", "preference_burst_interval", "preference_screen_photo_settings",
+                "preference_face_detection", "preference_show_face_detection", "preference_burst_mode", "preference_burst_interval", "preference_screen_photo_settings",
                 "preference_screen_processing_settings", "preference_show_auto_level", "preference_show_cycle_raw",
                 "preference_show_stamp", "preference_show_textstamp", "preference_show_preview_shots",
                 "preference_ghost_image", "ghost_image_alpha", "preference_thumbnail_animation",
@@ -280,6 +281,7 @@ public final class MixerSettings {
 
     public static void enforceVideoOnly(Context context) {
         PreferenceManager.getDefaultSharedPreferences(context).edit()
+                .putBoolean("preference_face_detection", false).putBoolean("preference_show_face_detection", false)
                 .putBoolean("is_video", true).putString("preference_photo_mode", "preference_photo_mode_std")
                 .putString("preference_audio_control", "none").putString("preference_burst_mode", "1")
                 .putBoolean("preference_pause_preview", false).putBoolean("preference_show_whats_new", false)

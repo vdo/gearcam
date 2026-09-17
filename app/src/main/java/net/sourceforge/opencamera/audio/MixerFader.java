@@ -29,16 +29,16 @@ final class MixerFader extends View {
     @Override protected void onDraw(Canvas canvas) {
         float center = getWidth() * 0.55f;
         paint.setStrokeWidth(2 * density); paint.setTextSize(10 * density);
-        for (int db : new int[] {24, 12, 0, -12, -24, -48, -60}) {
-            paint.setColor(db == 0 ? 0xff66dec0 : 0xff788c9e);
+        for (int db : getHeight() < 140 * density ? new int[] {24, 0, -24, -60} : new int[] {24, 12, 0, -12, -24, -48, -60}) {
+            paint.setColor(db == 0 ? net.sourceforge.opencamera.ui.StudioTheme.palette(getContext()).accent : net.sourceforge.opencamera.ui.StudioTheme.palette(getContext()).muted);
             canvas.drawText(String.valueOf(db), 0, y(db) + 3 * density, paint);
             canvas.drawLine(center - 12 * density, y(db), getWidth(), y(db), paint);
         }
         paint.setColor(0xff080e15); canvas.drawRoundRect(center - 3 * density, y(24), center + 3 * density, y(-60), 3, 3, paint);
-        paint.setColor(0xff66dec0); canvas.drawRect(center - density, y(gain), center + density, y(-60), paint);
-        paint.setColor(isPressed() ? 0xff66dec0 : 0xffd8e1e9);
+        paint.setColor(net.sourceforge.opencamera.ui.StudioTheme.palette(getContext()).accent); canvas.drawRect(center - density, y(gain), center + density, y(-60), paint);
+        paint.setColor(isPressed() ? net.sourceforge.opencamera.ui.StudioTheme.palette(getContext()).accent : net.sourceforge.opencamera.ui.StudioTheme.palette(getContext()).text);
         canvas.drawRoundRect(center - 18 * density, y(gain) - 12 * density, center + 18 * density, y(gain) + 12 * density, 4 * density, 4 * density, paint);
-        paint.setColor(Color.BLACK); canvas.drawLine(center - 12 * density, y(gain), center + 12 * density, y(gain), paint);
+        paint.setColor(net.sourceforge.opencamera.ui.StudioTheme.palette(getContext()).background); canvas.drawLine(center - 12 * density, y(gain), center + 12 * density, y(gain), paint);
     }
 
     private void setGain(float value) {

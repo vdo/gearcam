@@ -24,14 +24,17 @@ import android.view.Window;
 import android.view.WindowManager;
 import android.widget.Button;
 import android.widget.CheckBox;
+import android.view.accessibility.AccessibilityNodeInfo;
 import android.widget.HorizontalScrollView;
+import android.widget.ImageButton;
+import android.widget.ImageView;
 import android.widget.LinearLayout;
 import android.widget.ScrollView;
 import android.widget.SeekBar;
 import android.widget.TextView;
-import android.widget.ToggleButton;
 import androidx.core.content.ContextCompat;
 import net.sourceforge.opencamera.MainActivity;
+import net.sourceforge.opencamera.ui.StudioTheme;
 import java.util.ArrayList;
 import java.util.HashSet;
 import java.util.List;
@@ -41,7 +44,8 @@ import java.util.Set;
 /** Full-screen console: scrolling input strips and a pinned stereo master. */
 public final class MixerDialog {
     private static final String USB_PERMISSION = "app.gearcam.USB_PERMISSION";
-    private static final int BG = 0xff0d141c, PANEL = 0xff19232f, TEXT = 0xffe4edf5, MUTED = 0xff96aabb, ACCENT = 0xff66dec0;
+    private final int BG, PANEL, TEXT, MUTED, ACCENT;
+    private int stripHeight;
     private final android.app.Activity activity;
     private final UsbAudioDevices devices;
     private final Runnable onClosed;
@@ -82,13 +86,15 @@ public final class MixerDialog {
     }
 
     public MixerDialog(android.app.Activity activity, JamAudioSession recordingSession, UsbAudioDevices devices, Runnable stopTake, Runnable onClosed) {
+        StudioTheme.Palette palette = StudioTheme.palette(activity);
+        BG = palette.background; PANEL = palette.panel; TEXT = palette.text; MUTED = palette.muted; ACCENT = palette.accent;
         this.activity = activity; this.recordingSession = recordingSession; this.devices = devices; this.onClosed = onClosed;
         compact = activity.getResources().getConfiguration().orientation == android.content.res.Configuration.ORIENTATION_LANDSCAPE;
         settings = new MixerSettings(activity);
         audioManager = (AudioManager) activity.getSystemService(Context.AUDIO_SERVICE);
         usbManager = (UsbManager) activity.getSystemService(Context.USB_SERVICE);
 
-        dialog = new Dialog(activity, android.R.style.Theme_Material_NoActionBar);
+        dialog = new Dialog(activity, net.sourceforge.opencamera.R.style.AppTheme);
         dialog.requestWindowFeature(Window.FEATURE_NO_TITLE);
         LinearLayout root = column(); root.setBackgroundColor(BG); root.setPadding(dp(12), dp(8), dp(12), dp(8));
         root.setOnApplyWindowInsetsListener((v, insets) -> {
@@ -97,14 +103,14 @@ public final class MixerDialog {
             return insets;
         });
         LinearLayout toolbar = row();
-        TextView title = text("GEARCAM MIXER", 16, TEXT); title.setTypeface(null, Typeface.BOLD); title.setSingleLine(true); title.setEllipsize(android.text.TextUtils.TruncateAt.END);
+        TextView title = text("Mixer", 20, TEXT); title.setTypeface(null, Typeface.BOLD); title.setSingleLine(true); title.setEllipsize(android.text.TextUtils.TruncateAt.END);
         toolbar.addView(title, new LinearLayout.LayoutParams(0, -2, 1));
         Button done = button(RecordingPreferences.audioOnly(activity) ? "Recorder" : "Camera"); done.setOnClickListener(v -> dismiss()); toolbar.addView(done);
         root.addView(toolbar);
         status = text(recordingSession == null ? "48 kHz  ·  High-resolution mix  ·  Swipe inputs sideways" : "RECORDING  ·  Faders, balance, mute, filters and gate are live", 12, MUTED);
-        root.addView(status);
+        status.setPadding(0, dp(2), 0, dp(4)); root.addView(status);
         // Master bus: a full-width bar above the inputs, so it never covers a channel strip.
-        LinearLayout bus = column(); bus.setPadding(dp(12), 0, dp(4), dp(8)); bus.setBackground(card(0xff21312f));
+        LinearLayout bus = column(); bus.setPadding(dp(12), 0, dp(4), dp(8)); bus.setBackground(card(PANEL));
         busCard = bus;
         busControls = row();
         busControls.addView(text("MASTER  L / R", 14, ACCENT), new LinearLayout.LayoutParams(0, -2, 1));
@@ -112,7 +118,7 @@ public final class MixerDialog {
         limiter.setOnCheckedChangeListener((v, value) -> settings.preferences.edit().putBoolean("limiter", value).apply()); busControls.addView(limiter);
         soundcheck = button(recordingSession == null ? "Soundcheck" : "Recording");
         soundcheck.setEnabled(recordingSession == null);
-        soundcheck.setOnClickListener(v -> { if (monitor == null) startMonitor(); else { stopMonitor(); status.setText("Soundcheck stopped"); } }); toolbar.addView(soundcheck, 1, new LinearLayout.LayoutParams(dp(124), dp(44)));
+        soundcheck.setOnClickListener(v -> { if (monitor == null) startMonitor(); else { stopMonitor(); status.setText("Soundcheck stopped"); } }); toolbar.addView(soundcheck, 1, new LinearLayout.LayoutParams(dp(114), dp(36)));
         Button reset = button("Reset clips"); reset.setOnClickListener(v -> { if (active() != null) active().mixer.resetClips(); }); busControls.addView(reset);
         if (recordingSession != null) {
             Button stop = button("Stop take"); stop.setTextColor(0xffff8275);
@@ -131,14 +137,19 @@ public final class MixerDialog {
         // not under strips that are taller than the screen.
         HorizontalScrollView horizontal = new HorizontalScrollView(activity);
         horizontal.setFillViewport(true); horizontal.setScrollbarFadingEnabled(false);
-        channels = row(); channels.setGravity(Gravity.TOP); channels.setPadding(0, dp(8), dp(8), dp(12));
+        channels = row(); channels.setGravity(Gravity.TOP); channels.setPadding(0, dp(6), dp(8), dp(6));
         ScrollView inputScroll = new ScrollView(activity); inputScroll.setFillViewport(true);
         inputScroll.addView(channels, new android.widget.FrameLayout.LayoutParams(-2, -2));
         horizontal.addView(inputScroll, new android.widget.FrameLayout.LayoutParams(-2, -1));
         root.addView(horizontal, new LinearLayout.LayoutParams(-1, 0, 1));
+        horizontal.addOnLayoutChangeListener((v, l, t, r, b, ol, ot, or, ob) -> {
+            int height = b - t - dp(12);
+            if (height > 0 && Math.abs(height - stripHeight) > dp(4)) { stripHeight = height; rebuild(); }
+        });
         LinearLayout options = row();
         CheckBox wav = check("24-bit WAV master", settings.preferences.getBoolean("wav_master", true)); wav.setEnabled(recordingSession == null);
-        wav.setOnCheckedChangeListener((v, value) -> settings.preferences.edit().putBoolean("wav_master", value).apply()); options.addView(wav);
+        wav.setOnCheckedChangeListener((v, value) -> settings.preferences.edit().putBoolean("wav_master", value).apply()); if (!RecordingPreferences.audioOnly(activity)) options.addView(wav);
+        else options.addView(text(RecordingPreferences.format(activity).toUpperCase(Locale.ROOT) + " · 48 kHz stereo", 12, MUTED), new LinearLayout.LayoutParams(0, -2, 1));
         Button settingsButton = button("Sync & help"); settingsButton.setOnClickListener(v -> showOptions()); options.addView(settingsButton);
         root.addView(options);
         root.addOnLayoutChangeListener((v, l, t, r, b, ol, ot, or, ob) -> {
@@ -154,6 +165,8 @@ public final class MixerDialog {
         if (window != null) {
             window.setLayout(-1, -1); window.setBackgroundDrawableResource(android.R.color.transparent);
             window.addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON);
+            window.clearFlags(WindowManager.LayoutParams.FLAG_FULLSCREEN);
+            StudioTheme.systemBars(window, activity);
             window.clearFlags(WindowManager.LayoutParams.FLAG_DIM_BEHIND);
         }
         audioManager.registerAudioDeviceCallback(deviceCallback, handler);
@@ -167,30 +180,41 @@ public final class MixerDialog {
     private LinearLayout column() { LinearLayout v = new LinearLayout(activity); v.setOrientation(LinearLayout.VERTICAL); return v; }
     private LinearLayout row() { LinearLayout v = new LinearLayout(activity); v.setOrientation(LinearLayout.HORIZONTAL); v.setGravity(Gravity.CENTER_VERTICAL); return v; }
     private int dp(int v) { return Math.round(v * activity.getResources().getDisplayMetrics().density); }
-    private GradientDrawable card(int color) { GradientDrawable b = new GradientDrawable(); b.setColor(color); b.setCornerRadius(dp(8)); return b; }
+    private GradientDrawable card(int color) { return StudioTheme.card(activity, color, 16); }
     private TextView text(String value, int size, int color) {
-        TextView v = new TextView(activity); v.setText(value); v.setTextColor(color); v.setTextSize(size); v.setPadding(0, dp(3), 0, dp(3)); return v;
+        TextView v = new TextView(activity); v.setText(value); v.setTextColor(color); v.setTextSize(size); v.setPadding(0, dp(1), 0, dp(1)); return v;
     }
     private Button button(String label) {
-        Button v = new Button(activity); v.setText(label); v.setAllCaps(false); v.setTextSize(12); v.setTextColor(TEXT);
-        v.setMinWidth(0); v.setMinimumWidth(0); v.setMinHeight(dp(44)); v.setPadding(dp(8), 0, dp(8), 0);
-        v.setBackgroundTintList(ColorStateList.valueOf(0xff30414f)); return v;
+        Button v = new Button(activity); v.setText(label); StudioTheme.button(v, false);
+        v.setTextSize(12); v.setMinHeight(dp(36)); v.setMinimumHeight(dp(36));
+        v.setLayoutParams(new LinearLayout.LayoutParams(-2, dp(36))); v.setPadding(dp(8), 0, dp(8), 0);
+        return v;
     }
-    private ToggleButton toggle(String preference, String label, String description) {
-        ToggleButton v = new ToggleButton(activity); v.setTextOn(label); v.setTextOff(label);
-        v.setChecked(settings.preferences.getBoolean(preference, false)); v.setContentDescription(description);
-        v.setAllCaps(false); v.setTextSize(11); v.setMinWidth(0); v.setMinimumWidth(0); v.setMinHeight(0); v.setMinimumHeight(0);
-        v.setPadding(dp(2), 0, dp(2), 0);
-        int[][] states = {new int[] {android.R.attr.state_checked}, new int[] {}};
-        v.setTextColor(new ColorStateList(states, new int[] {BG, TEXT}));
-        v.setBackgroundTintList(new ColorStateList(states, new int[] {ACCENT, 0xff30414f}));
-        v.setOnCheckedChangeListener((b, on) -> settings.preferences.edit().putBoolean(preference, on).apply());
+    /** Icon on/off switch bound to a boolean preference; a null preference shows it unavailable. */
+    private ImageButton iconToggle(String preference, int icon, String description) {
+        ImageButton v = new ImageButton(activity); v.setImageResource(icon); v.setContentDescription(description);
+        v.setScaleType(ImageView.ScaleType.FIT_CENTER); v.setPadding(dp(6), dp(6), dp(6), dp(6));
+        v.setBackground(StudioTheme.surface(activity, PANEL, 8));
+        v.setEnabled(preference != null); if (preference == null) v.setAlpha(0.35f);
+        Runnable refresh = () -> {
+            boolean on = preference != null && settings.preferences.getBoolean(preference, false);
+            v.setSelected(on);
+            v.setBackgroundTintList(ColorStateList.valueOf(on ? ACCENT : StudioTheme.palette(activity).border));
+            v.setImageTintList(ColorStateList.valueOf(on ? BG : TEXT));
+        };
+        refresh.run();
+        v.setOnClickListener(b -> { settings.preferences.edit().putBoolean(preference, !v.isSelected()).apply(); refresh.run(); });
+        v.setAccessibilityDelegate(new View.AccessibilityDelegate() {
+            @Override public void onInitializeAccessibilityNodeInfo(View host, AccessibilityNodeInfo info) {
+                super.onInitializeAccessibilityNodeInfo(host, info); info.setCheckable(true); info.setChecked(host.isSelected());
+            }
+        });
         return v;
     }
     private CheckBox check(String label, boolean value) {
         CheckBox v = new CheckBox(activity); v.setText(label); v.setTextSize(12); v.setTextColor(TEXT); v.setChecked(value);
         v.setButtonTintList(new ColorStateList(new int[][] {new int[] {android.R.attr.state_checked}, new int[] {}}, new int[] {ACCENT, MUTED}));
-        v.setMinHeight(dp(44)); return v;
+        v.setMinHeight(dp(32)); v.setMinimumHeight(dp(32)); v.setPadding(0, 0, 0, 0); return v;
     }
 
     /** Landscape puts the master meters on its controls row and drops the readout: the strips need the height. */
@@ -224,15 +248,15 @@ public final class MixerDialog {
     }
 
     private LinearLayout strip() {
-        LinearLayout strip = column(); strip.setPadding(dp(compact ? 8 : 12), dp(8), dp(compact ? 8 : 12), dp(8)); strip.setBackground(card(PANEL));
-        LinearLayout.LayoutParams size = new LinearLayout.LayoutParams(dp(compact ? 256 : 166), -2); size.setMargins(0, 0, dp(8), 0); channels.addView(strip, size); return strip;
+        LinearLayout strip = column(); strip.setPadding(dp(8), dp(8), dp(8), dp(8)); strip.setBackground(card(PANEL));
+        LinearLayout.LayoutParams size = new LinearLayout.LayoutParams(dp(compact ? 260 : 180), -2); size.setMargins(0, 0, dp(8), 0); channels.addView(strip, size); return strip;
     }
 
     private void addStrip(MixerSettings.Input input, int channel, boolean stereo) {
         LinearLayout strip = strip();
         String title = input.phone ? "PHONE MIC" : stereo ? "INPUTS " + (channel + 1) + " / " + (channel + 2) : "INPUT " + (channel + 1);
         TextView heading = text(title, 14, stereo ? ACCENT : TEXT); heading.setTypeface(null, Typeface.BOLD); strip.addView(heading);
-        TextView device = text(input.label.replace(" · Direct USB", ""), 10, MUTED); device.setMaxLines(2); device.setMinHeight(dp(32)); strip.addView(device);
+        TextView device = text(input.label.replace(" · Direct USB", ""), 10, MUTED); device.setSingleLine(true); device.setEllipsize(android.text.TextUtils.TruncateAt.END); strip.addView(device);
         if (input.directUsb && !usbManager.hasPermission(input.usbDevice)) {
             Button permission = button("Connect USB"); permission.setEnabled(recordingSession == null);
             permission.setOnClickListener(v -> requestUsbPermission(input)); strip.addView(permission);
@@ -262,48 +286,59 @@ public final class MixerDialog {
             }
             public void onStartTrackingTouch(SeekBar v) { v.getParent().requestDisallowInterceptTouchEvent(true); }
             public void onStopTrackingTouch(SeekBar v) { v.getParent().requestDisallowInterceptTouchEvent(false); }
-        }); strip.addView(panSlider, new LinearLayout.LayoutParams(-1, dp(40)));
+        }); strip.addView(panSlider, new LinearLayout.LayoutParams(-1, dp(28)));
         TextView gain = text(String.format(Locale.getDefault(), "%+.1f dB", settings.preferences.getFloat(key + "/gain", 0)), 18, TEXT);
         gain.setGravity(Gravity.CENTER); strip.addView(gain);
         LinearLayout faders = row();
         // The master bar above the inputs takes ~100 dp of height; size faders so a strip fits a phone screen.
-        int faderHeight = Math.max(compact ? 96 : 120, Math.min(220, (int) (activity.getResources().getDisplayMetrics().heightPixels / activity.getResources().getDisplayMetrics().density) - 560));
+        int available = stripHeight > 0 ? stripHeight / dp(1) : (int) (activity.getResources().getDisplayMetrics().heightPixels / activity.getResources().getDisplayMetrics().density) - 190;
+        int faderHeight = Math.max(80, Math.min(compact ? 180 : 300, available - (compact ? 76 : 190)));
         MixerFader fader = new MixerFader(activity, settings.preferences.getFloat(key + "/gain", 0), title + " gain", value -> { gain.setText(String.format(Locale.getDefault(), "%+.1f dB", value)); settings.preferences.edit().putFloat(key + "/gain", value).apply(); });
         faders.addView(fader, new LinearLayout.LayoutParams(0, dp(faderHeight), 1));
         LinearLayout values = row();
         for (int c = channel; c <= channel + (stereo ? 1 : 0); c++) {
             LevelMeterView bar = new LevelMeterView(activity, true); LinearLayout.LayoutParams barSize = new LinearLayout.LayoutParams(dp(9), dp(faderHeight - 36)); barSize.setMargins(dp(5), 0, 0, 0); faders.addView(bar, barSize);
-            TextView readout = text("−∞ dBFS", 10, MUTED); readout.setMinHeight(dp(32)); readout.setMaxLines(2); values.addView(readout, new LinearLayout.LayoutParams(0, -2, 1)); meters.add(new Meter(input.channelKey(c), readout, bar));
+            TextView readout = text("−∞ dBFS", 10, MUTED); readout.setSingleLine(true); values.addView(readout, new LinearLayout.LayoutParams(0, -2, 1)); meters.add(new Meter(input.channelKey(c), readout, bar));
         }
         strip.addView(faders); strip.addView(values);
         CheckBox mute = check("Mute", settings.preferences.getBoolean(key + "/mute", false)); mute.setOnCheckedChangeListener((v, value) -> settings.preferences.edit().putBoolean(key + "/mute", value).apply()); strip.addView(mute);
-        LinearLayout processing = row(); // live, like the fader: the same switches a desk strip has
-        processing.addView(toggle(key + MixerSettings.HIGH_PASS, "HPF", title + " high-pass 30 Hz"), new LinearLayout.LayoutParams(0, dp(40), 1));
-        processing.addView(toggle(key + MixerSettings.LOW_PASS, "LPF", title + " low-pass 20 kHz"), new LinearLayout.LayoutParams(0, dp(40), 1));
-        strip.addView(processing);
-        CheckBox gate = check("Noise gate", settings.preferences.getBoolean(MixerSettings.GATE, false)); // live
-        gate.setOnCheckedChangeListener((v, on) -> settings.preferences.edit().putBoolean(MixerSettings.GATE, on).apply());
-        if (input.phone) strip.addView(gate);
+        LinearLayout processing = row(); processing.setPadding(0, dp(4), 0, 0); // live, like the fader: the same switches a desk strip has
+        ImageButton[] switches = {
+                iconToggle(input.phone ? MixerSettings.GATE : null, net.sourceforge.opencamera.R.drawable.ic_gate, input.phone ? title + " noise gate" : "Noise gate: phone mic only"),
+                iconToggle(key + MixerSettings.LOW_PASS, net.sourceforge.opencamera.R.drawable.ic_lpf, title + " low-pass 20 kHz"),
+                iconToggle(key + MixerSettings.HIGH_PASS, net.sourceforge.opencamera.R.drawable.ic_hpf, title + " high-pass 30 Hz")};
+        for (ImageButton s : switches) {
+            LinearLayout.LayoutParams size = new LinearLayout.LayoutParams(0, dp(36), 1); size.setMargins(dp(2), 0, dp(2), 0);
+            processing.addView(s, size);
+        }
         View routing;
         if (!input.phone && channel % 2 == 0 && channel + 1 < input.channels) {
             Button link = button(stereo ? "Unlink stereo" : "Link " + (channel + 1) + " + " + (channel + 2)); link.setTextColor(ACCENT); link.setEnabled(recordingSession == null);
             link.setOnClickListener(v -> { stopMonitor(); settings.link(input, channel, !stereo); rebuild(); }); strip.addView(link); routing = link;
         } else { routing = text(input.phone ? "ROOM / AMBIENCE" : "MONO", 10, MUTED); strip.addView(routing); }
+        // Put record/mute together and move tone options to a compact menu, so the entire strip fits.
+        for (View child : new View[] {armed, panLabel, panSlider, gain, faders, values, mute, routing}) strip.removeView(child);
+        armed.setText(compact ? "Rec" : stereo ? "Rec pair" : "Record");
+        armed.setContentDescription(title + " enabled for recording"); mute.setSingleLine(true);
+        LinearLayout armMute = row(); armMute.addView(armed, new LinearLayout.LayoutParams(0, dp(32), 1));
+        armMute.addView(mute, new LinearLayout.LayoutParams(0, dp(32), 1));
         if (compact) {
             device.setVisibility(View.GONE);
-            for (View child : new View[] {armed, panLabel, panSlider, gain, faders, values, mute, processing, gate, routing}) strip.removeView(child);
-            LinearLayout controls = column();
-            controls.addView(armed); controls.addView(mute); controls.addView(processing);
-            if (input.phone) controls.addView(gate);
-            controls.addView(panLabel);
-            controls.addView(panSlider, new LinearLayout.LayoutParams(-1, dp(40))); controls.addView(routing);
-            LinearLayout gainStrip = column(); gainStrip.setPadding(dp(8), 0, 0, 0); gainStrip.addView(gain);
-            fader.getLayoutParams().height = dp(faderHeight);
-            for (int i = 1; i < faders.getChildCount(); i++) faders.getChildAt(i).getLayoutParams().height = dp(faderHeight - 36);
+            LinearLayout controls = column(); controls.addView(armMute); controls.addView(panLabel);
+            controls.addView(panSlider, new LinearLayout.LayoutParams(-1, dp(28)));
+            if (routing instanceof Button) controls.addView(routing, new LinearLayout.LayoutParams(-1, dp(32)));
+            controls.addView(processing);
+            LinearLayout gainStrip = column(); gainStrip.setPadding(dp(6), 0, 0, 0); gainStrip.addView(gain);
             gainStrip.addView(faders); gainStrip.addView(values);
             LinearLayout body = row(); body.setGravity(Gravity.TOP);
-            body.addView(controls, new LinearLayout.LayoutParams(dp(114), -2));
+            body.addView(controls, new LinearLayout.LayoutParams(dp(136), -2));
             body.addView(gainStrip, new LinearLayout.LayoutParams(0, -2, 1)); strip.addView(body);
+        } else {
+            strip.addView(armMute); strip.addView(panLabel);
+            strip.addView(panSlider, new LinearLayout.LayoutParams(-1, dp(28)));
+            strip.addView(gain); strip.addView(faders); strip.addView(values);
+            if (routing instanceof Button) strip.addView(routing, new LinearLayout.LayoutParams(-1, dp(32)));
+            strip.addView(processing);
         }
     }
 
@@ -328,7 +363,8 @@ public final class MixerDialog {
             public void onStopTrackingTouch(SeekBar v) { }
         }); content.addView(sync);
         content.addView(text("Positive delay moves audio later. Check sync with a clap.\n\n48 kHz throughout: no upsampling. Direct USB chooses its highest available bit depth. The 24-bit WAV master uses your chosen save folder, or Music/GearCam by default (about 1 GB/hour). MP4 audio is AAC.\n\nRed input clipping means the source or adapter overloaded. Lower its hardware gain; a fader cannot repair distortion. Stereo links share gain, balance, mute, filters and recording selection.\n\nHPF removes DC and infrasonic content below 30 Hz, LPF ultrasonic content above 20 kHz: both 3-pole Butterworth (−18 dB/octave), freeing headroom.\n\nNoise gate (phone mic) learns the background and turns it down 20 dB between phrases, so hum and room noise drop out in the pauses. It cannot remove noise under the voice.\n\nDrag a fader vertically. Swipe between strips to see more inputs. Soundcheck uses the recording path without saving.", 13, TEXT));
-        new android.app.AlertDialog.Builder(activity, android.app.AlertDialog.THEME_DEVICE_DEFAULT_DARK).setTitle("Recording settings").setView(content).setPositiveButton("Done", null).show();
+        ScrollView helpScroll = new ScrollView(activity); helpScroll.addView(content);
+        new android.app.AlertDialog.Builder(activity).setTitle("Recording settings").setView(helpScroll).setPositiveButton("Done", null).show();
     }
 
     private void startMonitor() {

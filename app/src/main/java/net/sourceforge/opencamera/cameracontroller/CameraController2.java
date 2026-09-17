@@ -274,6 +274,23 @@ public class CameraController2 extends CameraController {
     private Handler handler;
     private Executor executor;
     private Surface video_recorder_surface;
+    private Surface previewOutput;
+    private net.sourceforge.opencamera.video.FilterSurface previewFilter, recordingFilter;
+
+    private void closeFilters() {
+        if (recordingFilter != null) { recordingFilter.close(); recordingFilter = null; }
+        if (previewFilter != null) { previewFilter.close(); previewFilter = null; }
+        if (previewOutput != null) { previewOutput.release(); previewOutput = null; }
+    }
+
+    private net.sourceforge.opencamera.video.FilterSurface filterSurface(Surface output, int width, int height) throws CameraControllerException {
+        try { return new net.sourceforge.opencamera.video.FilterSurface(context, output, width, height, preview_error_cb::onError); }
+        catch (RuntimeException failure) {
+            MyDebug.logStackTrace(TAG, "Unable to initialize creative filters", failure);
+            closeFilters(); throw new CameraControllerException();
+        }
+    }
+
 
     private int preview_width;
     private int preview_height;
@@ -1447,6 +1464,7 @@ public class CameraController2 extends CameraController {
                 extensionSession = null;
             }
         }
+        closeFilters();
     }
 
     @Override
@@ -5369,7 +5387,11 @@ public class CameraController2 extends CameraController {
                             Log.d(TAG, "remove old target: " + surface_texture);
                         previewBuilder.removeTarget(surface_texture);
                     }
-                    this.surface_texture = new Surface(texture);
+                    previewOutput = new Surface(texture);
+                    if (!want_video_high_speed && sessionType != SessionType.SESSIONTYPE_EXTENSION) {
+                        previewFilter = filterSurface(previewOutput, preview_width, preview_height);
+                        this.surface_texture = previewFilter.input();
+                    } else this.surface_texture = previewOutput;
                     if( MyDebug.LOG )
                         Log.d(TAG, "created new target: " + surface_texture);
                 }
@@ -5388,10 +5410,12 @@ public class CameraController2 extends CameraController {
                 Log.d(TAG, "set preview size: " + this.preview_width + " x " + this.preview_height);
 
             synchronized( background_camera_lock ) {
-                if( video_surface != null )
-                    video_recorder_surface = video_surface;
-                else
-                    video_recorder_surface = null;
+                if (video_surface != null) {
+                    if (!want_video_high_speed) {
+                        recordingFilter = filterSurface(video_surface, 0, 0);
+                        video_recorder_surface = recordingFilter.input();
+                    } else video_recorder_surface = video_surface;
+                } else video_recorder_surface = null;
                 if( MyDebug.LOG )
                     Log.d(TAG, "video_recorder_surface: " + video_recorder_surface);
             }

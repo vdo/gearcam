@@ -1,0 +1,64 @@
+<resources>
+    <attr name="studioBackground" format="color" />
+    <attr name="studioPanel" format="color" />
+    <attr name="studioBorder" format="color" />
+    <attr name="studioText" format="color" />
+    <attr name="studioMuted" format="color" />
+    <attr name="studioAccent" format="color" />
+    <style name="StudioMint" parent="">
+        <item name="studioBackground">#0C1219</item>
+        <item name="studioPanel">#17222D</item>
+        <item name="studioBorder">#2A3B49</item>
+        <item name="studioText">#EDF4FA</item>
+        <item name="studioMuted">#A5B8C8</item>
+        <item name="studioAccent">#72E5C0</item>
+    </style>
+    <style name="StudioOcean" parent="">
+        <item name="studioBackground">#091522</item>
+        <item name="studioPanel">#13283B</item>
+        <item name="studioBorder">#29455E</item>
+        <item name="studioText">#EDF6FF</item>
+        <item name="studioMuted">#A3BDD2</item>
+        <item name="studioAccent">#77CAFF</item>
+    </style>
+    <style name="StudioViolet" parent="">
+        <item name="studioBackground">#151122</item>
+        <item name="studioPanel">#251E38</item>
+        <item name="studioBorder">#413654</item>
+        <item name="studioText">#F5EFFF</item>
+        <item name="studioMuted">#B9ACCF</item>
+        <item name="studioAccent">#C2A2FF</item>
+    </style>
+    <style name="StudioRose" parent="">
+        <item name="studioBackground">#1E1119</item>
+        <item name="studioPanel">#32202C</item>
+        <item name="studioBorder">#513748</item>
+        <item name="studioText">#FFEFF6</item>
+        <item name="studioMuted">#CBB0C0</item>
+        <item name="studioAccent">#FF9FC4</item>
+    </style>
+    <style name="StudioAmber" parent="">
+        <item name="studioBackground">#19150D</item>
+        <item name="studioPanel">#2B2418</item>
+        <item name="studioBorder">#493E29</item>
+        <item name="studioText">#FFF5E6</item>
+        <item name="studioMuted">#C9BDA4</item>
+        <item name="studioAccent">#FFCF77</item>
+    </style>
+    <style name="StudioGraphite" parent="">
+        <item name="studioBackground">#101112</item>
+        <item name="studioPanel">#222426</item>
+        <item name="studioBorder">#3D4145</item>
+        <item name="studioText">#F3F4F5</item>
+        <item name="studioMuted">#AFB5BB</item>
+        <item name="studioAccent">#D3D9DF</item>
+    </style>
+    <style name="StudioPaper" parent="">
+        <item name="studioBackground">#F1F3F4</item>
+        <item name="studioPanel">#FFFFFF</item>
+        <item name="studioBorder">#D1D9DF</item>
+        <item name="studioText">#182733</item>
+        <item name="studioMuted">#536574</item>
+        <item name="studioAccent">#006C58</item>
+    </style>
+</resources>

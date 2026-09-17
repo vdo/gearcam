@@ -441,6 +441,7 @@ public class MainUI {
             layoutParams.addRule(iconpanel_below, 0);
             layoutParams.addRule(iconpanel_left_of, 0);
             layoutParams.addRule(iconpanel_right_of, 0);
+            layoutParams.setMargins(0, 0, 0, 0);
             view.setLayoutParams(layoutParams);
             setViewRotation(view, ui_rotation);
             View previous_view = view;
@@ -467,13 +468,15 @@ public class MainUI {
             }
             buttons_permanent.add(main_activity.findViewById(R.id.settings));
             buttons_permanent.add(main_activity.findViewById(R.id.popup));
+            buttons_permanent.add(main_activity.findViewById(R.id.creative_filter));
+            buttons_permanent.add(main_activity.findViewById(R.id.overlay));
             buttons_permanent.add(main_activity.findViewById(R.id.exposure));
-            //buttons_permanent.add(main_activity.findViewById(R.id.switch_video));
-            //buttons_permanent.add(main_activity.findViewById(R.id.switch_camera));
 
             onScreenIcons.addOnScreenIcons(buttons_permanent);
 
             buttons_permanent.add(main_activity.findViewById(R.id.kraken_icon));
+            buttons_permanent.add(main_activity.findViewById(R.id.switch_multi_camera));
+            buttons_permanent.add(main_activity.findViewById(R.id.switch_camera));
 
             List<View> buttons_all = new ArrayList<>(buttons_permanent);
             // icons which only sometimes show on the icon panel:
@@ -495,7 +498,7 @@ public class MainUI {
                 previous_view = this_view;
             }
 
-            int button_size = main_activity.getResources().getDimensionPixelSize(R.dimen.onscreen_button_size);
+            int button_size = StudioTheme.dp(main_activity, 44);
             if( ui_placement == UIPlacement.UIPLACEMENT_TOP ) {
                 // need to dynamically lay out the permanent icons
 
@@ -538,7 +541,7 @@ public class MainUI {
                         if( MyDebug.LOG )
                             Log.d(TAG, "need to increase margin");
                         if( count > 1 )
-                            margin = (display_height - total_button_size) / (count-1);
+                            margin = 0;
                     }
                     if( MyDebug.LOG ) {
                         Log.d(TAG, "button_size: " + button_size);
@@ -574,6 +577,12 @@ public class MainUI {
                         }
                     }
                     top_icon = first_visible_view;
+
+                    View anchor = main_activity.findViewById(R.id.gui_anchor);
+                    layoutParams = (RelativeLayout.LayoutParams)anchor.getLayoutParams();
+                    int bar_length = count*button_size + navigation_gap_reverse_landscape + navigation_gap_landscape;
+                    setMarginsForSystemUI(layoutParams, 0, Math.max(0, (display_height - bar_length)/2), 0, 0);
+                    anchor.setLayoutParams(layoutParams);
                 }
             }
             else {
@@ -596,6 +605,7 @@ public class MainUI {
                 }
             }
 
+            CameraToolbar.arrange(main_activity, buttons_permanent);
             // end icon panel
 
             view = main_activity.findViewById(R.id.take_photo);
@@ -607,37 +617,6 @@ public class MainUI {
             layoutParams.addRule(center_vertical, RelativeLayout.TRUE);
             layoutParams.addRule(center_horizontal, 0);
             setMarginsForSystemUI(layoutParams, 0, 0, navigation_gap, 0);
-            view.setLayoutParams(layoutParams);
-            setViewRotation(view, ui_rotation);
-
-            view = main_activity.findViewById(R.id.switch_camera);
-            layoutParams = (RelativeLayout.LayoutParams)view.getLayoutParams();
-            layoutParams.addRule(align_parent_left, 0);
-            layoutParams.addRule(align_parent_right, RelativeLayout.TRUE);
-            layoutParams.addRule(align_parent_top, 0);
-            layoutParams.addRule(align_parent_bottom, 0);
-            layoutParams.addRule(ui_independent_above, R.id.take_photo);
-            layoutParams.addRule(ui_independent_below, 0);
-            layoutParams.addRule(ui_independent_left_of, 0);
-            layoutParams.addRule(ui_independent_right_of, 0);
-            setMarginsForSystemUI(layoutParams, 0, 0, navigation_gap, 0);
-            view.setLayoutParams(layoutParams);
-            setViewRotation(view, ui_rotation);
-
-            view = main_activity.findViewById(R.id.switch_multi_camera);
-            layoutParams = (RelativeLayout.LayoutParams)view.getLayoutParams();
-            layoutParams.addRule(ui_independent_above, 0);
-            layoutParams.addRule(ui_independent_below, 0);
-            layoutParams.addRule(ui_independent_left_of, R.id.switch_camera);
-            layoutParams.addRule(ui_independent_right_of, 0);
-            layoutParams.addRule(align_top, R.id.switch_camera);
-            layoutParams.addRule(align_bottom, R.id.switch_camera);
-            layoutParams.addRule(align_left, 0);
-            layoutParams.addRule(align_right, 0);
-            {
-                int margin = (int) (5 * scale + 0.5f); // convert dps to pixels
-                setMarginsForSystemUI(layoutParams, 0, 0, margin, 0);
-            }
             view.setLayoutParams(layoutParams);
             setViewRotation(view, ui_rotation);
 
@@ -679,7 +658,8 @@ public class MainUI {
             layoutParams.addRule(ui_independent_below, R.id.take_photo);
             layoutParams.addRule(ui_independent_left_of, 0);
             layoutParams.addRule(ui_independent_right_of, 0);
-            setMarginsForSystemUI(layoutParams, 0, 0, navigation_gap, 0);
+            // centre on the record button's axis: half of its 100 dp minus the mixer's 60 dp
+            setMarginsForSystemUI(layoutParams, 0, 0, navigation_gap + (int) (20 * scale + 0.5f), 0);
             view.setLayoutParams(layoutParams);
             setViewRotation(view, ui_rotation);
 
@@ -1232,6 +1212,9 @@ public class MainUI {
                 popupButton.setVisibility(visibility);
                 galleryButton.setVisibility(visibility);
                 settingsButton.setVisibility(visibility);
+                main_activity.findViewById(R.id.creative_filter).setVisibility(visibility);
+                main_activity.findViewById(R.id.overlay).setVisibility(visibility);
+                main_activity.findViewById(R.id.camera_toolbar).setVisibility(visibility);
                 if( MyDebug.LOG ) {
                     Log.d(TAG, "has_zoom: " + main_activity.getPreview().supportsZoom());
                 }
@@ -1333,9 +1316,7 @@ public class MainUI {
                 }
                 popupButton.setVisibility(main_activity.getPreview().supportsFlash() ? visibility_video : visibility); // still allow popup in order to change flash mode when recording video
 
-                if( show_gui_photo && show_gui_video ) {
-                    layoutUI(); // needed for "top" UIPlacement, to auto-arrange the buttons
-                }
+                layoutUI(); // re-centre the top bar when icons are shown or hidden
             }
         });
     }

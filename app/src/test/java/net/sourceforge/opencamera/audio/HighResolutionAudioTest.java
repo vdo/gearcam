@@ -48,6 +48,32 @@ public class HighResolutionAudioTest {
         assertArrayEquals(new float[] {0.3f, 0}, output, 1e-6f);
     }
 
+    @Test public void wavClosesTheDescriptorWhenHeaderCannotBeWritten() throws Exception {
+        File file = File.createTempFile("gearcam-header-failure", ".wav");
+        final boolean[] closed = {false};
+        java.io.FileOutputStream stream = new java.io.FileOutputStream(file) {
+            @Override public void write(byte[] bytes) throws java.io.IOException { throw new java.io.IOException("Storage unavailable"); }
+            @Override public void close() throws java.io.IOException { closed[0] = true; super.close(); }
+        };
+        try {
+            try { new WavMaster(stream); fail("Expected failed header write"); }
+            catch (java.io.IOException expected) { assertEquals("Storage unavailable", expected.getMessage()); }
+            assertTrue("Failed construction must close the owned descriptor", closed[0]);
+        } finally { stream.close(); file.delete(); }
+    }
+
+    @Test public void wavResetsExistingDescriptorPositionBeforeWritingHeader() throws Exception {
+        File file = File.createTempFile("gearcam-position", ".wav");
+        try {
+            java.io.FileOutputStream stream = new java.io.FileOutputStream(file);
+            stream.getChannel().position(100);
+            try (WavMaster master = new WavMaster(stream)) { master.write(new float[] {0, 0}, 1); }
+            try (RandomAccessFile data = new RandomAccessFile(file, "r")) {
+                assertEquals(50, data.length()); assertEquals(0x52494646, data.readInt());
+            }
+        } finally { file.delete(); }
+    }
+
     @Test public void wavMasterKeeps24BitSamplesAndClosesHeader() throws Exception {
         File file = File.createTempFile("gearcam-master", ".wav");
         try {

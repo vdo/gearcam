@@ -59,7 +59,15 @@ public class PreferenceSubScreen extends PreferenceFragment implements SharedPre
         MyPreferenceFragment.setBackground(this);
 
         SharedPreferences sharedPreferences = PreferenceManager.getDefaultSharedPreferences(this.getActivity());
+        MyPreferenceFragment.refreshPreferenceValues(sharedPreferences, getPreferenceScreen());
         sharedPreferences.registerOnSharedPreferenceChangeListener(this);
+        net.sourceforge.opencamera.audio.RecordingPreferences.configure(this);
+        net.sourceforge.opencamera.ui.StudioTheme.preferences(this);
+    }
+
+    @Override public void onPause() {
+        PreferenceManager.getDefaultSharedPreferences(getActivity()).unregisterOnSharedPreferenceChangeListener(this);
+        super.onPause();
     }
 
     /* See comment for MyPreferenceFragment.onSharedPreferenceChanged().

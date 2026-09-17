@@ -10,8 +10,21 @@
             res/values-vXX/styles.xml, while customizations related to
             backward-compatibility can go here.
         -->
+        <item name="studioBackground">#0C1219</item>
+        <item name="studioPanel">#17222D</item>
+        <item name="studioBorder">#2A3B49</item>
+        <item name="studioText">#EDF4FA</item>
+        <item name="studioMuted">#A5B8C8</item>
+        <item name="studioAccent">#72E5C0</item>
         <item name="android:imageButtonStyle">@style/image_button</item>
         <item name="android:navigationBarColor">@android:color/black</item>
+        <item name="colorAccent">?attr/studioAccent</item>
+        <item name="android:colorAccent">?attr/studioAccent</item>
+        <item name="android:colorBackground">?attr/studioBackground</item>
+        <item name="android:textColorPrimary">?attr/studioText</item>
+        <item name="android:textColorSecondary">?attr/studioMuted</item>
+        <item name="android:fontFamily">sans-serif</item>
+        <item name="android:alertDialogTheme">@style/StudioAlertDialog</item>
     </style>
 
     <!-- Application theme. -->
@@ -29,6 +42,14 @@
     </style>
 
     <style name="image_button" parent="@android:style/Widget.Material.ImageButton">
-        <item name="android:backgroundTint">#d05a595b</item> <!-- standard material design backgroundTint is #ff5a595b, but we want transparent image buttons -->
+        <item name="android:backgroundTint">@null</item>
+    </style>
+    <style name="StudioAlertDialog" parent="android:style/Theme.Material.Dialog.Alert">
+        <item name="android:colorAccent">?attr/studioAccent</item>
+        <item name="android:colorBackground">?attr/studioBackground</item>
+        <item name="android:textColorPrimary">?attr/studioText</item>
+        <item name="android:textColorSecondary">?attr/studioMuted</item>
+        <item name="android:windowBackground">@drawable/studio_card</item>
+        <item name="android:fontFamily">sans-serif</item>
     </style>
 </resources>

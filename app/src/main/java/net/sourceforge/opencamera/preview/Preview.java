@@ -1987,6 +1987,7 @@ public class Preview implements SurfaceHolder.Callback, TextureView.SurfaceTextu
                     public void onError() {
                         if( MyDebug.LOG )
                             Log.e(TAG, "error from CameraController: preview failed to start");
+                        if (isVideoRecording()) stopVideo(false);
                         applicationInterface.onFailedStartPreview();
                     }
                 };
@@ -2284,6 +2285,10 @@ public class Preview implements SurfaceHolder.Callback, TextureView.SurfaceTextu
         // In theory it shouldn't matter if we call setVideoHighSpeed(true) if is_video==false, as it should only have an effect
         // when recording video; but don't set high speed mode in photo mode just to be safe.
         camera_controller.setVideoHighSpeed(is_video && video_high_speed);
+        if ((!using_android_l || video_high_speed) && net.sourceforge.opencamera.video.CreativeFilters.selected(getContext()) != 0) {
+            net.sourceforge.opencamera.video.CreativeFilters.select(getContext(), 0);
+            showToast(null, "Original selected · creative filters require normal-speed Camera2 video");
+        }
 
         if( do_startup_focus && using_android_l && camera_controller.supportsAutoFocus() ) {
             // need to switch flash off for autofocus - and for Android L, need to do this before starting preview (otherwise it won't work in time); for old camera API, need to do this after starting preview!
@@ -6407,8 +6412,12 @@ public class Preview implements SurfaceHolder.Callback, TextureView.SurfaceTextu
         boolean told_app_starting = false;
         try {
             camera_controller.initVideoRecorderPrePrepare(null); // the start sound, before audio capture begins
-            muxer = videoFileInfo.video_method == ApplicationInterface.VideoMethod.FILE ?
-                    new LiveMuxer(videoFileInfo.video_filename, 2) : new LiveMuxer(videoFileInfo.video_pfd_saf.getFileDescriptor(), 2);
+            if (videoFileInfo.video_method == ApplicationInterface.VideoMethod.FILE)
+                muxer = new LiveMuxer(videoFileInfo.video_filename, 2);
+            else if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O)
+                muxer = new LiveMuxer(videoFileInfo.video_pfd_saf.getFileDescriptor(), 2);
+            else
+                throw new IOException("Direct recording to a document requires Android 8 or later");
             muxer.setOrientationHint(getImageVideoRotation());
             if( applicationInterface.getGeotaggingPref() && applicationInterface.getLocation() != null ) {
                 Location location = applicationInterface.getLocation();
@@ -9021,6 +9030,27 @@ public class Preview implements SurfaceHolder.Callback, TextureView.SurfaceTextu
             this.preview_bitmap_full_h = preview_bitmap_full_h;
         }
 
+        private RefreshPreviewBitmapTaskResult captured;
+
+        @Override protected void onPreExecute() {
+            Preview preview = previewReference.get();
+            if (preview == null || !(preview.cameraSurface instanceof TextureView)) return;
+            TextureView texture = (TextureView) preview.cameraSurface;
+            if (!texture.isAvailable()) return;
+            captured = new RefreshPreviewBitmapTaskResult();
+            try {
+                Bitmap small = preview_bitmapReference.get();
+                if (small != null) texture.getBitmap(small);
+                if (preview_bitmap_full_w > 0 && preview_bitmap_full_h > 0 && update_preshot) {
+                    captured.preview_bitmap_full_copy = Bitmap.createBitmap(preview_bitmap_full_w, preview_bitmap_full_h, Bitmap.Config.ARGB_8888);
+                    texture.getBitmap(captured.preview_bitmap_full_copy);
+                }
+            } catch (IllegalStateException | IllegalArgumentException e) {
+                MyDebug.logStackTrace(TAG, "failed to capture preview bitmap", e);
+                recycleResult(captured); captured = null;
+            }
+        }
+
         @Override
         protected RefreshPreviewBitmapTaskResult doInBackground(Void... voids) {
             long debug_time = 0;
@@ -9033,7 +9063,7 @@ public class Preview implements SurfaceHolder.Callback, TextureView.SurfaceTextu
             if( preview == null ) {
                 if( MyDebug.LOG )
                     Log.d(TAG, "preview is null");
-                return null;
+                return captured;
             }
             Bitmap preview_bitmap = preview_bitmapReference.get();
             Bitmap zebra_stripes_bitmap_buffer = zebra_stripes_bitmap_bufferReference.get();
@@ -9043,45 +9073,13 @@ public class Preview implements SurfaceHolder.Callback, TextureView.SurfaceTextu
             if( activity == null || activity.isFinishing() ) {
                 if( MyDebug.LOG )
                     Log.d(TAG, "activity is null or finishing");
-                return null;
+                return captured;
             }
 
-            RefreshPreviewBitmapTaskResult result = new RefreshPreviewBitmapTaskResult();
+            RefreshPreviewBitmapTaskResult result = captured;
+            if (result == null || isCancelled()) return result;
 
             try {
-                if( MyDebug.LOG )
-                    Log.d(TAG, "time before getBitmap: " + (System.currentTimeMillis() - debug_time));
-                TextureView textureView = (TextureView)preview.cameraSurface;
-                if( preview_bitmap != null ) {
-                    textureView.getBitmap(preview_bitmap);
-                    if( MyDebug.LOG )
-                        Log.d(TAG, "time after getBitmap: " + (System.currentTimeMillis() - debug_time));
-                }
-                if( preview_bitmap_full_w != -1 && preview_bitmap_full_h != -1 && update_preshot ) {
-                    // much faster to create a fresh preview_bitmap_full to read into, instead of copying it after
-                    try {
-                        if( MyDebug.LOG )
-                            Log.d(TAG, "time before creating preview_bitmap_full_copy: " + (System.currentTimeMillis() - debug_time));
-                        result.preview_bitmap_full_copy = Bitmap.createBitmap(preview_bitmap_full_w, preview_bitmap_full_h, Bitmap.Config.ARGB_8888);
-                        if( MyDebug.LOG )
-                            Log.d(TAG, "time after creating preview_bitmap_full_copy: " + (System.currentTimeMillis() - debug_time));
-                        textureView.getBitmap(result.preview_bitmap_full_copy);
-                        if( MyDebug.LOG )
-                            Log.d(TAG, "time after getBitmap for preview_bitmap_full_copy: " + (System.currentTimeMillis() - debug_time));
-                        // See comments below for zebra stripes for why we need to rotate
-                        // But since rotating is slower (and presumably more CPU intensive) than taking a copy, we leave this to the ImageSaver thread -
-                        // although that'll also be just as slow, better to only do it when we're actually saving pre-shots,
-                        // rather than having this run all the time.
-                        // Also see above - it's much faster to create a new bitmap to read into, than to copy a bitmap
-                    }
-                    catch(IllegalArgumentException e) {
-                        MyDebug.logStackTrace(TAG, "failed to create preview_bitmap_full_copy", e);
-                    }
-                }
-
-                if( MyDebug.LOG )
-                    Log.d(TAG, "time after createFromBitmap: " + (System.currentTimeMillis() - debug_time));
-
                 if( update_histogram && preview_bitmap != null ) {
                     if( MyDebug.LOG )
                         Log.d(TAG, "generate histogram");
@@ -9228,14 +9226,10 @@ public class Preview implements SurfaceHolder.Callback, TextureView.SurfaceTextu
                 Log.d(TAG, "onPostExecute, async task: " + this);
 
             Preview preview = previewReference.get();
-            if( preview == null ) {
-                return;
-            }
-            Activity activity = (Activity)preview.getContext();
-            if( activity == null || activity.isFinishing() ) {
-                return;
-            }
-            if( result == null ) {
+            if (preview != null && preview.refreshPreviewBitmapTask == this) preview.refreshPreviewBitmapTask = null;
+            Activity activity = preview == null ? null : (Activity) preview.getContext();
+            if (activity == null || activity.isFinishing() || result == null) {
+                recycleResult(result);
                 return;
             }
 
@@ -9256,8 +9250,8 @@ public class Preview implements SurfaceHolder.Callback, TextureView.SurfaceTextu
             }
             preview.focus_peaking_bitmap = result.new_focus_peaking_bitmap;
 
-            if( preview.want_pre_shots && result.preview_bitmap_full_copy != null ) {
-                if( preview.isTakingPhoto() ) {
+            if( result.preview_bitmap_full_copy != null ) {
+                if( !preview.want_pre_shots || preview.isTakingPhoto() ) {
                     // don't add pre-shots once already taking a photo (otherwise we may have pre-shots after the photo was taken)
                     result.preview_bitmap_full_copy.recycle();
                 }
@@ -9273,15 +9267,17 @@ public class Preview implements SurfaceHolder.Callback, TextureView.SurfaceTextu
                 Log.d(TAG, "onPostExecute done, async task: " + this);
         }
 
-        @Override
-        protected void onCancelled() {
-            if( MyDebug.LOG )
-                Log.d(TAG, "onCancelled, async task: " + this);
+        private static void recycleResult(RefreshPreviewBitmapTaskResult result) {
+            if (result == null) return;
+            if (result.new_zebra_stripes_bitmap != null) result.new_zebra_stripes_bitmap.recycle();
+            if (result.new_focus_peaking_bitmap != null) result.new_focus_peaking_bitmap.recycle();
+            if (result.preview_bitmap_full_copy != null) result.preview_bitmap_full_copy.recycle();
+        }
+
+        @Override protected void onCancelled(RefreshPreviewBitmapTaskResult result) {
+            recycleResult(result != null ? result : captured);
             Preview preview = previewReference.get();
-            if( preview == null ) {
-                return;
-            }
-            preview.refreshPreviewBitmapTask = null;
+            if (preview != null && preview.refreshPreviewBitmapTask == this) preview.refreshPreviewBitmapTask = null;
         }
     }
 

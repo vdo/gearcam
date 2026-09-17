@@ -459,7 +459,7 @@ public class OnScreenIcons {
         if( main_activity.getApplicationInterface().getPhotoMode() == MyApplicationInterface.PhotoMode.Panorama )
             return false; // see MyApplicationInterface.getLockOrientationPref(): for now panorama only supports portrait
         SharedPreferences sharedPreferences = PreferenceManager.getDefaultSharedPreferences(main_activity);
-        return sharedPreferences.getBoolean(PreferenceKeys.ShowCycleLockOrientationPreferenceKey, false);
+        return sharedPreferences.getBoolean(PreferenceKeys.ShowCycleLockOrientationPreferenceKey, true);
     }
 
     private boolean showPreviewShotsIcon() {

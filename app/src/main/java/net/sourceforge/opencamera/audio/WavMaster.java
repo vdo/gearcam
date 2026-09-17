@@ -17,10 +17,15 @@ final class WavMaster implements AutoCloseable {
 
     WavMaster(FileOutputStream output) throws IOException {
         this.output = output;
-        output.getChannel().truncate(0);
-        ascii("RIFF"); le(36, 4); ascii("WAVEfmt "); le(16, 4);
-        le(1, 2); le(2, 2); le(MixerSettings.RATE, 4); le(MixerSettings.RATE * 6, 4);
-        le(6, 2); le(24, 2); ascii("data"); le(0, 4);
+        try {
+            output.getChannel().truncate(0).position(0);
+            ascii("RIFF"); le(36, 4); ascii("WAVEfmt "); le(16, 4);
+            le(1, 2); le(2, 2); le(MixerSettings.RATE, 4); le(MixerSettings.RATE * 6, 4);
+            le(6, 2); le(24, 2); ascii("data"); le(0, 4);
+        } catch (IOException | RuntimeException failure) {
+            try { output.close(); } catch (IOException closeFailure) { failure.addSuppressed(closeFailure); }
+            throw failure;
+        }
     }
 
     void write(float[] pcm, int frames) throws IOException {

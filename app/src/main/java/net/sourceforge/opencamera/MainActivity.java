@@ -253,6 +253,7 @@ public class MainActivity extends AppCompatActivity implements PreferenceFragmen
             EdgeToEdge.enable(this);
         }
         //EdgeToEdge.enable(this, SystemBarStyle.auto(Color.TRANSPARENT, Color.TRANSPARENT), SystemBarStyle.dark(Color.TRANSPARENT)); // test edge-to-edge on pre-Android 15
+        net.sourceforge.opencamera.ui.StudioTheme.apply(this);
         super.onCreate(savedInstanceState);
 
         setContentView(R.layout.activity_main);
@@ -849,6 +850,8 @@ public class MainActivity extends AppCompatActivity implements PreferenceFragmen
             if( MyDebug.LOG )
                 Log.d(TAG, "launching from video intent");
             applicationInterface.setVideoPref(true);
+            PreferenceManager.getDefaultSharedPreferences(this).edit()
+                    .putString(net.sourceforge.opencamera.audio.RecordingPreferences.MODE, "video").apply();
         }
         else if( MediaStore.ACTION_IMAGE_CAPTURE.equals(action) || MediaStore.ACTION_IMAGE_CAPTURE_SECURE.equals(action) || MediaStore.INTENT_ACTION_STILL_IMAGE_CAMERA.equals(action) || MediaStore.INTENT_ACTION_STILL_IMAGE_CAMERA_SECURE.equals(action) ) {
             if( MyDebug.LOG )
@@ -864,6 +867,8 @@ public class MainActivity extends AppCompatActivity implements PreferenceFragmen
             if( MyDebug.LOG )
                 Log.d(TAG, "launching from quick settings tile or application shortcut for Open Camera: video mode");
             applicationInterface.setVideoPref(true);
+            PreferenceManager.getDefaultSharedPreferences(this).edit()
+                    .putString(net.sourceforge.opencamera.audio.RecordingPreferences.MODE, "video").apply();
         }
         else if( (Build.VERSION.SDK_INT >= Build.VERSION_CODES.N && MyTileServiceFrontCamera.TILE_ID.equals(action)) || ACTION_SHORTCUT_SELFIE.equals(action) ) {
             if( MyDebug.LOG )

@@ -25,7 +25,21 @@ public final class RecordingPreferences {
     public static String folderLabel(Context context) {
         SharedPreferences prefs = prefs(context);
         if (prefs.getBoolean(PreferenceKeys.UsingSAFPreferenceKey, false)) {
-            try { return DocumentsContract.getTreeDocumentId(Uri.parse(prefs.getString(PreferenceKeys.SaveLocationSAFPreferenceKey, ""))); }
+            try {
+                Uri uri = Uri.parse(prefs.getString(PreferenceKeys.SaveLocationSAFPreferenceKey, ""));
+                String id = DocumentsContract.getTreeDocumentId(uri);
+                if ("com.android.externalstorage.documents".equals(uri.getAuthority())) {
+                    String[] parts = id.split(":", 2);
+                    String volume = "primary".equals(parts[0]) ? "Internal storage" : "External storage";
+                    if (!"primary".equals(parts[0]) && android.os.Build.VERSION.SDK_INT >= 24) {
+                        android.os.storage.StorageManager manager = (android.os.storage.StorageManager) context.getSystemService(Context.STORAGE_SERVICE);
+                        for (android.os.storage.StorageVolume storage : manager.getStorageVolumes())
+                            if (parts[0].equalsIgnoreCase(storage.getUuid())) { volume = storage.getDescription(context); break; }
+                    }
+                    return volume + (parts.length == 2 && !parts[1].isEmpty() ? " / " + parts[1] : "");
+                }
+                return id;
+            }
             catch (RuntimeException e) { return "Folder unavailable · choose again"; }
         }
         return "Video: DCIM/" + prefs.getString(PreferenceKeys.SaveLocationPreferenceKey, "GearCam") + " · Audio: Music/GearCam";
@@ -35,7 +49,9 @@ public final class RecordingPreferences {
         return prefs(context).getBoolean(PreferenceKeys.UsingSAFPreferenceKey, false) ? folderLabel(context) : "Music/GearCam";
     }
 
-    public static void chooseFolder(Activity activity) {
+    public static void chooseFolder(Activity activity) { chooseFolder(activity, () -> {}); }
+
+    public static void chooseFolder(Activity activity, Runnable changed) {
         new AlertDialog.Builder(activity).setTitle("Save location")
                 .setMessage(folderLabel(activity) + "\n\nChoose a folder on internal storage or an SD card. Video, audio-only takes and WAV masters will use that folder.")
                 .setPositiveButton("Choose folder…", (d, w) -> {
@@ -44,7 +60,7 @@ public final class RecordingPreferences {
                     try { activity.startActivityForResult(intent, FOLDER_REQUEST); }
                     catch (android.content.ActivityNotFoundException e) { Toast.makeText(activity, "No system folder picker is available", Toast.LENGTH_LONG).show(); }
                 })
-                .setNeutralButton("Use defaults", (d, w) -> prefs(activity).edit().putBoolean(PreferenceKeys.UsingSAFPreferenceKey, false).apply())
+                .setNeutralButton("Use defaults", (d, w) -> { prefs(activity).edit().putBoolean(PreferenceKeys.UsingSAFPreferenceKey, false).apply(); changed.run(); })
                 .setNegativeButton("Cancel", null).show();
     }
 
@@ -83,10 +99,11 @@ public final class RecordingPreferences {
             format.setEntryValues(new String[] {"wav", "mp3", "flac"}); format.setDefaultValue("wav"); format.setSummary("%s");
             fragment.getPreferenceScreen().addPreference(format);
             Preference folder = new Preference(fragment.getActivity());
-            folder.setKey("gearcam_save_folder"); folder.setTitle("Save location · internal storage / SD card"); folder.setOrder(-2);
+            folder.setKey("gearcam_save_folder"); folder.setTitle("Save location"); folder.setOrder(-2);
             folder.setOnPreferenceClickListener(p -> { chooseFolder(fragment.getActivity()); return true; });
             fragment.getPreferenceScreen().addPreference(folder);
         }
-        fragment.findPreference("gearcam_save_folder").setSummary(folderLabel(fragment.getActivity()));
+        fragment.findPreference("gearcam_save_folder").setSummary(folderLabel(fragment.getActivity()) + "\nChoose internal storage or SD card");
+        net.sourceforge.opencamera.ui.StudioTheme.preferences(fragment);
     }
 }

@@ -27,11 +27,73 @@ import static org.junit.Assert.*;
 public class GearCamRecordingTest {
     @Rule public GrantPermissionRule permissions = GrantPermissionRule.grant(Manifest.permission.CAMERA, Manifest.permission.RECORD_AUDIO);
 
+    @Test public void videoIntentOverridesSavedAudioMode() throws Exception {
+        Context context = ApplicationProvider.getApplicationContext();
+        android.content.SharedPreferences prefs = PreferenceManager.getDefaultSharedPreferences(context);
+        prefs.edit().putString(net.sourceforge.opencamera.audio.RecordingPreferences.MODE, "audio").commit();
+        Intent intent = new Intent(context, MainActivity.class).setAction(android.provider.MediaStore.INTENT_ACTION_VIDEO_CAMERA).putExtra("test_project", true);
+        try (ActivityScenario<MainActivity> scenario = ActivityScenario.launch(intent)) {
+            await(scenario, a -> a.getPreview().isPreviewStarted(), 15000);
+            scenario.onActivity(a -> { assertTrue(a.getPreview().isVideo()); assertFalse(net.sourceforge.opencamera.audio.RecordingPreferences.audioOnly(a)); });
+        }
+    }
+
+    @Test public void settingsRefreshAfterPauseAndStopObservingAfterClose() throws Exception {
+        Context context = ApplicationProvider.getApplicationContext();
+        android.content.SharedPreferences prefs = PreferenceManager.getDefaultSharedPreferences(context);
+        String formatKey = net.sourceforge.opencamera.audio.RecordingPreferences.FORMAT;
+        prefs.edit().putString(net.sourceforge.opencamera.audio.RecordingPreferences.MODE, "video").putString(formatKey, "wav").commit();
+        AtomicReference<android.preference.ListPreference> choice = new AtomicReference<>();
+        // Retain the closed fragment to prove that cleanup does not depend on garbage collection.
+        AtomicReference<android.preference.PreferenceFragment> fragment = new AtomicReference<>();
+        try (ActivityScenario<MainActivity> scenario = ActivityScenario.launch(new Intent(context, MainActivity.class).putExtra("test_project", true))) {
+            await(scenario, a -> a.getPreview().isPreviewStarted(), 15000);
+            scenario.onActivity(MainActivity::openSettings);
+            await(scenario, a -> a.getFragmentManager().findFragmentByTag("PREFERENCE_FRAGMENT") != null, 5000);
+            scenario.onActivity(a -> {
+                fragment.set((android.preference.PreferenceFragment) a.getFragmentManager().findFragmentByTag("PREFERENCE_FRAGMENT"));
+                choice.set((android.preference.ListPreference) fragment.get().findPreference(formatKey));
+                assertEquals("wav", choice.get().getValue());
+            });
+            screenshot(context, "settings-ui");
+            scenario.moveToState(androidx.lifecycle.Lifecycle.State.CREATED);
+            prefs.edit().putString(formatKey, "flac").commit();
+            androidx.test.platform.app.InstrumentationRegistry.getInstrumentation().waitForIdleSync();
+            assertEquals("Paused settings should not receive callbacks", "wav", choice.get().getValue());
+            scenario.moveToState(androidx.lifecycle.Lifecycle.State.RESUMED);
+            scenario.onActivity(a -> assertEquals("flac", choice.get().getValue()));
+        }
+        prefs.edit().putString(formatKey, "mp3").commit();
+        androidx.test.platform.app.InstrumentationRegistry.getInstrumentation().waitForIdleSync();
+        assertNull(fragment.get().getActivity());
+        assertEquals("Detached settings should not receive callbacks", "flac", choice.get().getValue());
+    }
+
+    @Test public void previewHistogramSurvivesCameraPauseAndResume() throws Exception {
+        Context context = ApplicationProvider.getApplicationContext();
+        android.content.SharedPreferences prefs = PreferenceManager.getDefaultSharedPreferences(context);
+        prefs.edit().putString(net.sourceforge.opencamera.audio.RecordingPreferences.MODE, "video")
+                .putString(PreferenceKeys.CameraAPIPreferenceKey, "preference_camera_api_camera2")
+                .putString(PreferenceKeys.HistogramPreferenceKey, "preference_histogram_rgb").commit();
+        try (ActivityScenario<MainActivity> scenario = ActivityScenario.launch(new Intent(context, MainActivity.class).putExtra("test_project", true))) {
+            for (int i = 0; i < 3; i++) {
+                await(scenario, a -> a.getPreview().getHistogram() != null, 15000);
+                scenario.onActivity(a -> {
+                    int sum = 0; for (int value : a.getPreview().getHistogram()) sum += value;
+                    assertTrue("Histogram must contain actual preview pixels", sum > 0);
+                });
+                scenario.moveToState(androidx.lifecycle.Lifecycle.State.CREATED);
+                scenario.moveToState(androidx.lifecycle.Lifecycle.State.RESUMED);
+            }
+        } finally { prefs.edit().remove(PreferenceKeys.HistogramPreferenceKey).commit(); }
+    }
+
     @Test public void mixerFaderStaysVisibleAcrossRotation() throws Exception {
         Context context = ApplicationProvider.getApplicationContext();
         context.getSharedPreferences("gearcam_mixer", Context.MODE_PRIVATE).edit().clear().commit();
         try (ActivityScenario<MainActivity> scenario = ActivityScenario.launch(new Intent(context, MainActivity.class).putExtra("test_project", true))) {
             await(scenario, a -> a.getPreview().isPreviewStarted(), 15000);
+            screenshot(context, "camera-ui");
             scenario.onActivity(MainActivity::showAudioMixer);
             for (int orientation : new int[] {android.content.pm.ActivityInfo.SCREEN_ORIENTATION_LANDSCAPE, android.content.pm.ActivityInfo.SCREEN_ORIENTATION_PORTRAIT}) {
                 scenario.onActivity(a -> a.setRequestedOrientation(orientation));
@@ -40,6 +102,11 @@ public class GearCamRecordingTest {
                         .check(androidx.test.espresso.assertion.ViewAssertions.matches(androidx.test.espresso.matcher.ViewMatchers.isCompletelyDisplayed()));
                 androidx.test.espresso.Espresso.onView(androidx.test.espresso.matcher.ViewMatchers.withText("Soundcheck"))
                         .check(androidx.test.espresso.assertion.ViewAssertions.matches(androidx.test.espresso.matcher.ViewMatchers.isCompletelyDisplayed()));
+                androidx.test.espresso.Espresso.onView(androidx.test.espresso.matcher.ViewMatchers.withContentDescription("PHONE MIC tone controls"))
+                        .check(androidx.test.espresso.assertion.ViewAssertions.matches(androidx.test.espresso.matcher.ViewMatchers.isCompletelyDisplayed()));
+                androidx.test.espresso.Espresso.onView(androidx.test.espresso.matcher.ViewMatchers.withContentDescription("PHONE MIC pan"))
+                        .check(androidx.test.espresso.assertion.ViewAssertions.matches(androidx.test.espresso.matcher.ViewMatchers.isCompletelyDisplayed()));
+                screenshot(context, "mixer-ui-" + orientation);
             }
             scenario.onActivity(MainActivity::dismissAudioMixer);
         }
@@ -61,6 +128,8 @@ public class GearCamRecordingTest {
             await(scenario, a -> a.getFragmentManager().findFragmentByTag("PREFERENCE_FRAGMENT") != null, 5000);
             scenario.onActivity(a -> {
                 android.preference.PreferenceFragment settings = (android.preference.PreferenceFragment) a.getFragmentManager().findFragmentByTag("PREFERENCE_FRAGMENT");
+                assertNull(settings.findPreference("preference_face_detection"));
+                assertNotNull(settings.findPreference(net.sourceforge.opencamera.ui.StudioTheme.KEY));
                 assertNull(settings.findPreference("preference_screen_photo_settings"));
                 assertNull(settings.findPreference("preference_screen_processing_settings"));
                 assertNull(settings.findPreference("preference_burst_mode"));
@@ -147,6 +216,13 @@ public class GearCamRecordingTest {
                 extractor.release(); context.getContentResolver().delete(result.get(), null, null);
             }
         }
+    }
+
+    private static void screenshot(Context context, String name) throws Exception {
+        android.graphics.Bitmap image = androidx.test.platform.app.InstrumentationRegistry.getInstrumentation().getUiAutomation().takeScreenshot();
+        try (java.io.FileOutputStream out = new java.io.FileOutputStream(new java.io.File(context.getExternalFilesDir(null), name + ".png"))) {
+            image.compress(android.graphics.Bitmap.CompressFormat.PNG, 100, out);
+        } finally { image.recycle(); }
     }
 
     private interface Condition { boolean test(MainActivity activity); }

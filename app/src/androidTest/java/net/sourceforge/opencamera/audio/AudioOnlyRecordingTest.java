@@ -73,16 +73,56 @@ public class AudioOnlyRecordingTest {
         Context context = ApplicationProvider.getApplicationContext();
         context.getSharedPreferences("gearcam_mixer", Context.MODE_PRIVATE).edit().putStringSet("inputs", Collections.singleton("phone/0")).commit();
         RecordingPreferences.prefs(context).edit().putString(RecordingPreferences.FORMAT, "wav").commit();
-        try (ActivityScenario<AudioRecorderActivity> scenario = ActivityScenario.launch(new Intent(context, AudioRecorderActivity.class))) {
-            await(scenario, a -> !a.isBusy() && a.getSession() != null);
-            scenario.onActivity(AudioRecorderActivity::toggleRecording); await(scenario, AudioRecorderActivity::isRecording);
-            Thread.sleep(1100);
-            scenario.moveToState(androidx.lifecycle.Lifecycle.State.CREATED);
-            Thread.sleep(1000);
-            scenario.moveToState(androidx.lifecycle.Lifecycle.State.RESUMED);
-            await(scenario, a -> !a.isBusy() && a.getLastSaved() != null && a.getSession() != null);
-            scenario.onActivity(a -> { assertFalse(a.isRecording()); context.getContentResolver().delete(a.getLastSaved(), null, null); });
-        }
+        android.content.SharedPreferences prefs = RecordingPreferences.prefs(context);
+        boolean oldUsingSaf = prefs.getBoolean(net.sourceforge.opencamera.PreferenceKeys.UsingSAFPreferenceKey, false);
+        String folder = prefs.getString(net.sourceforge.opencamera.PreferenceKeys.SaveLocationSAFPreferenceKey, "");
+        boolean hasFolder = context.getContentResolver().getPersistedUriPermissions().stream()
+                .anyMatch(p -> p.isWritePermission() && p.getUri().toString().equals(folder));
+        try {
+            for (boolean useSaf : hasFolder ? new boolean[] {false, true} : new boolean[] {false}) {
+                prefs.edit().putBoolean(net.sourceforge.opencamera.PreferenceKeys.UsingSAFPreferenceKey, useSaf).commit();
+                try (ActivityScenario<AudioRecorderActivity> scenario = ActivityScenario.launch(new Intent(context, AudioRecorderActivity.class))) {
+                    await(scenario, a -> !a.isBusy() && a.getSession() != null);
+                    scenario.onActivity(AudioRecorderActivity::toggleRecording); await(scenario, AudioRecorderActivity::isRecording);
+                    Thread.sleep(1100);
+                    scenario.moveToState(androidx.lifecycle.Lifecycle.State.CREATED);
+                    Thread.sleep(1000);
+                    scenario.moveToState(androidx.lifecycle.Lifecycle.State.RESUMED);
+                    await(scenario, a -> !a.isBusy() && a.getLastSaved() != null && a.getSession() != null);
+                    AtomicReference<Uri> saved = new AtomicReference<>();
+                    scenario.onActivity(a -> { assertFalse(a.isRecording()); saved.set(a.getLastSaved()); });
+                    if (android.provider.DocumentsContract.isDocumentUri(context, saved.get()))
+                        assertTrue(android.provider.DocumentsContract.deleteDocument(context.getContentResolver(), saved.get()));
+                    else context.getContentResolver().delete(saved.get(), null, null);
+                }
+            }
+        } finally { prefs.edit().putBoolean(net.sourceforge.opencamera.PreferenceKeys.UsingSAFPreferenceKey, oldUsingSaf).commit(); }
+    }
+
+    @Test public void allSevenThemesSurviveActivityRecreation() throws Exception {
+        Context context = ApplicationProvider.getApplicationContext();
+        android.content.SharedPreferences prefs = RecordingPreferences.prefs(context);
+        String oldTheme = prefs.getString(net.sourceforge.opencamera.ui.StudioTheme.KEY, "mint");
+        try {
+            for (int index = 0; index < net.sourceforge.opencamera.ui.StudioTheme.IDS.length; index++) {
+                String theme = net.sourceforge.opencamera.ui.StudioTheme.IDS[index];
+                prefs.edit().putString(net.sourceforge.opencamera.ui.StudioTheme.KEY, theme).commit();
+                try (ActivityScenario<AudioRecorderActivity> scenario = ActivityScenario.launch(new Intent(context, AudioRecorderActivity.class))) {
+                    await(scenario, a -> !a.isBusy() && a.getSession() != null);
+                    scenario.recreate();
+                    await(scenario, a -> !a.isBusy() && a.getSession() != null);
+                    scenario.onActivity(a -> {
+                        android.util.TypedValue value = new android.util.TypedValue();
+                        assertTrue(a.getTheme().resolveAttribute(net.sourceforge.opencamera.R.attr.studioAccent, value, true));
+                        assertEquals(net.sourceforge.opencamera.ui.StudioTheme.palette(a).accent, value.data);
+                    });
+                    android.graphics.Bitmap screenshot = androidx.test.platform.app.InstrumentationRegistry.getInstrumentation().getUiAutomation().takeScreenshot();
+                    try (java.io.FileOutputStream out = new java.io.FileOutputStream(new File(context.getExternalFilesDir(null), "theme-" + theme + ".png"))) {
+                        screenshot.compress(android.graphics.Bitmap.CompressFormat.PNG, 100, out);
+                    } finally { screenshot.recycle(); }
+                }
+            }
+        } finally { prefs.edit().putString(net.sourceforge.opencamera.ui.StudioTheme.KEY, oldTheme).commit(); }
     }
 
     @Test public void waveformAndControlsStayVisibleAcrossRotation() throws Exception {

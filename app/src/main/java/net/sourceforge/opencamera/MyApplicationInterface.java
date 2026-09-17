@@ -475,7 +475,7 @@ public class MyApplicationInterface extends BasicApplicationInterface {
 
     @Override
     public String getColorEffectPref() {
-        return sharedPreferences.getString(PreferenceKeys.ColorEffectPreferenceKey, CameraController.COLOR_EFFECT_DEFAULT);
+        return CameraController.COLOR_EFFECT_DEFAULT; // Creative filters own the preview and saved-video look.
     }
 
     @Override
@@ -678,11 +678,8 @@ public class MyApplicationInterface extends BasicApplicationInterface {
 
     @Override
     public boolean getFaceDetectionPref() {
-        if( isCameraExtensionPref() ) {
-            // not supported for camera extensions
-            return false;
-        }
-        return sharedPreferences.getBoolean(PreferenceKeys.FaceDetectionPreferenceKey, false);
+        return false; // GearCam does not use face detection.
+
     }
 
     /** Returns whether the current fps preference is one that requires a "high speed" video size/
