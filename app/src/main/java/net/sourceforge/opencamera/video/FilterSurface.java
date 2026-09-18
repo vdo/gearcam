@@ -19,6 +19,7 @@ public final class FilterSurface implements AutoCloseable {
     private final HandlerThread thread = new HandlerThread("GearCam filter");
     private final Handler handler;
     private final Runnable onFailure;
+    private final boolean sensorOrientation;
     private volatile boolean closed;
     private EGLDisplay display = EGL14.EGL_NO_DISPLAY;
     private EGLContext eglContext = EGL14.EGL_NO_CONTEXT;
@@ -33,8 +34,10 @@ public final class FilterSurface implements AutoCloseable {
     private final float[] transform = new float[16];
     private long lastTimestamp;
 
-    public FilterSurface(Context context, Surface destination, int width, int height, Runnable onFailure) {
-        this.context = context.getApplicationContext(); this.onFailure = onFailure;
+    /** @param sensorOrientation true for an encoder: output raw sensor-oriented frames, so the MP4
+     *                          orientation hint rotates them exactly once. False keeps the upright preview. */
+    public FilterSurface(Context context, Surface destination, int width, int height, boolean sensorOrientation, Runnable onFailure) {
+        this.context = context.getApplicationContext(); this.onFailure = onFailure; this.sensorOrientation = sensorOrientation;
         thread.start(); handler = new Handler(thread.getLooper());
         CountDownLatch ready = new CountDownLatch(1); RuntimeException[] failure = new RuntimeException[1];
         handler.post(() -> {
@@ -106,6 +109,7 @@ public final class FilterSurface implements AutoCloseable {
             texture.updateTexImage(); long timestamp = texture.getTimestamp();
             if (timestamp <= lastTimestamp) return;
             lastTimestamp = timestamp; texture.getTransformMatrix(transform);
+            if (sensorOrientation) CreativeFilters.stripBufferTransform(transform);
             GLES20.glViewport(0, 0, width, height);
             GLES20.glUniformMatrix4fv(transformLocation, 1, false, transform, 0);
             GLES20.glUniform1i(lookLocation, CreativeFilters.selected(context));

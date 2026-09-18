@@ -53,12 +53,4 @@
         <item name="studioMuted">#AFB5BB</item>
         <item name="studioAccent">#D3D9DF</item>
     </style>
-    <style name="StudioPaper" parent="">
-        <item name="studioBackground">#F1F3F4</item>
-        <item name="studioPanel">#FFFFFF</item>
-        <item name="studioBorder">#D1D9DF</item>
-        <item name="studioText">#182733</item>
-        <item name="studioMuted">#536574</item>
-        <item name="studioAccent">#006C58</item>
-    </style>
 </resources>

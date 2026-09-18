@@ -18,6 +18,23 @@ public final class CreativeFilters {
         if (index < 0 || index >= IDS.length) throw new IllegalArgumentException("Unknown filter");
         PreferenceManager.getDefaultSharedPreferences(context).edit().putString(KEY, IDS[index]).apply();
     }
+    /** Removes the buffer's rotation/mirror from a SurfaceTexture transform, keeping its crop and GL flip.
+     *  Camera2 rotates SurfaceTexture output so previews are upright, but encoders expect raw sensor frames
+     *  plus an orientation hint, exactly as a camera writing straight into the encoder surface produces.
+     *  The transform is FlipV * Crop * X (column-major, as SurfaceTexture builds it); X is a symmetry of the
+     *  unit square, whose sign pattern the positive crop scales leave visible. This multiplies by X⁻¹. */
+    static void stripBufferTransform(float[] m) {
+        float a = sign(m[0]), b = sign(m[4]), c = -sign(m[1]), d = -sign(m[5]); // X = [[a, b], [c, d]]
+        if (a == 1 && b == 0 && c == 0 && d == 1) return;
+        // X⁻¹ = Xᵀ about the centre: linear [[a, c], [b, d]], translation 0.5 - 0.5 * (row sums)
+        float tx = 0.5f - 0.5f * (a + c), ty = 0.5f - 0.5f * (b + d);
+        float m0 = m[0], m1 = m[1], m4 = m[4], m5 = m[5];
+        m[12] += m0 * tx + m4 * ty; m[13] += m1 * tx + m5 * ty;
+        m[0] = m0 * a + m4 * b; m[4] = m0 * c + m4 * d;
+        m[1] = m1 * a + m5 * b; m[5] = m1 * c + m5 * d;
+    }
+    private static float sign(float v) { return Math.abs(v) < 1e-4f ? 0 : Math.signum(v); }
+
     static final String FRAGMENT = "#extension GL_OES_EGL_image_external : require\n"
             + "precision mediump float; uniform samplerExternalOES image; uniform int look; varying vec2 uv; varying vec2 position;\n"
             + "void main() { vec3 c = texture2D(image, uv).rgb; float y = dot(c, vec3(0.2126,0.7152,0.0722));\n"

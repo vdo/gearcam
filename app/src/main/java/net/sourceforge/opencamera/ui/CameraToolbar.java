@@ -22,6 +22,8 @@ public final class CameraToolbar {
         View bar = activity.findViewById(R.id.camera_toolbar);
         StudioTheme.Palette palette = StudioTheme.palette(activity);
         bar.setBackground(StudioTheme.card(activity, (palette.panel & 0x00ffffff) | 0xee000000, 14));
+        activity.findViewById(R.id.switch_video).setBackground(new android.graphics.drawable.InsetDrawable(
+                StudioTheme.surface(activity, (palette.panel & 0x00ffffff) | 0xd9000000, 18), StudioTheme.dp(activity, 3)));
         ImageButton filter = activity.findViewById(R.id.creative_filter);
         filter.setOnClickListener(v -> showFilters(activity, filter));
         filter.setVisibility(activity.findViewById(R.id.settings).getVisibility());
@@ -57,10 +59,9 @@ public final class CameraToolbar {
         button.setContentDescription("Creative filters · " + CreativeFilters.NAMES[selected]);
         button.setImageTintList(ColorStateList.valueOf(selected == 0 ? palette.text : palette.accent));
     }
-    private static final String[] OVERLAYS = {"Overlays off", "Grid", "Zebras 95%", "Histogram"};
+    private static final String[] OVERLAYS = {"Overlays off", "Grid", "Histogram"};
     private static int currentOverlay(SharedPreferences prefs) {
-        if (!prefs.getString(PreferenceKeys.HistogramPreferenceKey, "preference_histogram_off").equals("preference_histogram_off")) return 3;
-        if (!prefs.getString(PreferenceKeys.ZebraStripesPreferenceKey, "0").equals("0")) return 2;
+        if (!prefs.getString(PreferenceKeys.HistogramPreferenceKey, "preference_histogram_off").equals("preference_histogram_off")) return 2;
         return prefs.getString(PreferenceKeys.ShowGridPreferenceKey, "preference_grid_none").equals("preference_grid_none") ? 0 : 1;
     }
     private static void updateOverlay(MainActivity activity, ImageButton button) {
@@ -71,12 +72,11 @@ public final class CameraToolbar {
     }
     private static void cycleOverlay(MainActivity activity, ImageButton button) {
         SharedPreferences prefs = PreferenceManager.getDefaultSharedPreferences(activity);
-        // zebras and histogram need preview bitmaps (Camera2 + TextureView), so only offer grid otherwise
+        // the histogram needs preview bitmaps (Camera2 + TextureView), so only offer grid otherwise
         int next = (currentOverlay(prefs) + 1) % (activity.supportsPreviewBitmaps() ? OVERLAYS.length : 2);
         prefs.edit()
                 .putString(PreferenceKeys.ShowGridPreferenceKey, next == 1 ? "preference_grid_3x3" : "preference_grid_none")
-                .putString(PreferenceKeys.ZebraStripesPreferenceKey, next == 2 ? "242" : "0")
-                .putString(PreferenceKeys.HistogramPreferenceKey, next == 3 ? "preference_histogram_rgb" : "preference_histogram_off")
+                .putString(PreferenceKeys.HistogramPreferenceKey, next == 2 ? "preference_histogram_rgb" : "preference_histogram_off")
                 .apply();
         activity.getApplicationInterface().getDrawPreview().updateSettings();
         updateOverlay(activity, button);

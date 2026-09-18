@@ -283,8 +283,8 @@ public class CameraController2 extends CameraController {
         if (previewOutput != null) { previewOutput.release(); previewOutput = null; }
     }
 
-    private net.sourceforge.opencamera.video.FilterSurface filterSurface(Surface output, int width, int height) throws CameraControllerException {
-        try { return new net.sourceforge.opencamera.video.FilterSurface(context, output, width, height, preview_error_cb::onError); }
+    private net.sourceforge.opencamera.video.FilterSurface filterSurface(Surface output, int width, int height, boolean encoder) throws CameraControllerException {
+        try { return new net.sourceforge.opencamera.video.FilterSurface(context, output, width, height, encoder, preview_error_cb::onError); }
         catch (RuntimeException failure) {
             MyDebug.logStackTrace(TAG, "Unable to initialize creative filters", failure);
             closeFilters(); throw new CameraControllerException();
@@ -5389,7 +5389,7 @@ public class CameraController2 extends CameraController {
                     }
                     previewOutput = new Surface(texture);
                     if (!want_video_high_speed && sessionType != SessionType.SESSIONTYPE_EXTENSION) {
-                        previewFilter = filterSurface(previewOutput, preview_width, preview_height);
+                        previewFilter = filterSurface(previewOutput, preview_width, preview_height, false);
                         this.surface_texture = previewFilter.input();
                     } else this.surface_texture = previewOutput;
                     if( MyDebug.LOG )
@@ -5412,7 +5412,7 @@ public class CameraController2 extends CameraController {
             synchronized( background_camera_lock ) {
                 if (video_surface != null) {
                     if (!want_video_high_speed) {
-                        recordingFilter = filterSurface(video_surface, 0, 0);
+                        recordingFilter = filterSurface(video_surface, 0, 0, true);
                         video_recorder_surface = recordingFilter.input();
                     } else video_recorder_surface = video_surface;
                 } else video_recorder_surface = null;

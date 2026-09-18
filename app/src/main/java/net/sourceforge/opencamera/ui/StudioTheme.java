@@ -18,8 +18,8 @@ public final class StudioTheme {
     public static final int BACKGROUND = 0xff0c1219, PANEL = 0xff17222d, BORDER = 0xff2a3b49;
     public static final int TEXT = 0xffedf4fa, MUTED = 0xffa5b8c8, ACCENT = 0xff72e5c0, RED = 0xffff817e;
     public static final String KEY = "gearcam_color_theme";
-    public static final String[] NAMES = {"Mint", "Ocean", "Violet", "Rose", "Amber", "Graphite", "Paper"};
-    public static final String[] IDS = {"mint", "ocean", "violet", "rose", "amber", "graphite", "paper"};
+    public static final String[] NAMES = {"Mint", "Ocean", "Violet", "Rose", "Amber", "Graphite"};
+    public static final String[] IDS = {"mint", "ocean", "violet", "rose", "amber", "graphite"};
     public static final class Palette {
         public final int background, panel, border, text, muted, accent;
         Palette(int background, int panel, int border, int text, int muted, int accent) {
@@ -33,8 +33,7 @@ public final class StudioTheme {
         new Palette(0xff151122, 0xff251e38, 0xff413654, 0xfff5efff, 0xffb9accf, 0xffc2a2ff),
         new Palette(0xff1e1119, 0xff32202c, 0xff513748, 0xffffeff6, 0xffcbb0c0, 0xffff9fc4),
         new Palette(0xff19150d, 0xff2b2418, 0xff493e29, 0xfffff5e6, 0xffc9bda4, 0xffffcf77),
-        new Palette(0xff101112, 0xff222426, 0xff3d4145, 0xfff3f4f5, 0xffafb5bb, 0xffd3d9df),
-        new Palette(0xfff1f3f4, 0xffffffff, 0xffd1d9df, 0xff182733, 0xff536574, 0xff006c58)
+        new Palette(0xff101112, 0xff222426, 0xff3d4145, 0xfff3f4f5, 0xffafb5bb, 0xffd3d9df)
     };
     public static int selected(Context context) {
         String value = android.preference.PreferenceManager.getDefaultSharedPreferences(context).getString(KEY, IDS[0]);
@@ -44,13 +43,13 @@ public final class StudioTheme {
     public static Palette palette(Context context) { return PALETTES[selected(context)]; }
     public static void apply(Context context) {
         int[] styles = {R.style.StudioMint, R.style.StudioOcean, R.style.StudioViolet, R.style.StudioRose,
-                R.style.StudioAmber, R.style.StudioGraphite, R.style.StudioPaper};
+                R.style.StudioAmber, R.style.StudioGraphite};
         context.getTheme().applyStyle(styles[selected(context)], true);
     }
+    /** All themes are dark, so system bar icons stay light. */
     public static void systemBars(android.view.Window window, Context context) {
-        boolean light = selected(context) == 6;
         androidx.core.view.WindowInsetsControllerCompat controller = new androidx.core.view.WindowInsetsControllerCompat(window, window.getDecorView());
-        controller.setAppearanceLightStatusBars(light); controller.setAppearanceLightNavigationBars(light);
+        controller.setAppearanceLightStatusBars(false); controller.setAppearanceLightNavigationBars(false);
     }
     public static void choose(android.app.Activity activity) {
         new android.app.AlertDialog.Builder(activity).setTitle("Color theme")
