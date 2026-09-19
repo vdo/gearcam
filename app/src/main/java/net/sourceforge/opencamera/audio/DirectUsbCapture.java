@@ -34,6 +34,7 @@ final class DirectUsbCapture implements Closeable {
         } catch (IOException | RuntimeException error) {
             if (opened != 0) nativeClose(opened);
             connection.close();
+            MidiTransport.usbReleased();
             throw error;
         }
     }
@@ -52,6 +53,7 @@ final class DirectUsbCapture implements Closeable {
             handle = 0;
         }
         connection.close();
+        MidiTransport.usbReleased();
     }
 
     private static native long nativeOpen(int fd, int channels, int sampleRate) throws IOException;

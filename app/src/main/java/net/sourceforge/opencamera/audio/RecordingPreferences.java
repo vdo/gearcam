@@ -102,6 +102,10 @@ public final class RecordingPreferences {
             folder.setKey("gearcam_save_folder"); folder.setTitle("Save location"); folder.setOrder(-2);
             folder.setOnPreferenceClickListener(p -> { chooseFolder(fragment.getActivity()); return true; });
             fragment.getPreferenceScreen().addPreference(folder);
+            android.preference.SwitchPreference midi = new android.preference.SwitchPreference(fragment.getActivity());
+            midi.setKey(MidiTransport.ENABLED); midi.setTitle("Start recording on MIDI play"); midi.setOrder(-1);
+            midi.setSummary("A Start or Continue from a USB MIDI device starts the take. Audio only: live input waits for the take"); midi.setDefaultValue(false);
+            fragment.getPreferenceScreen().addPreference(midi);
         }
         fragment.findPreference("gearcam_save_folder").setSummary(folderLabel(fragment.getActivity()) + "\nChoose internal storage or SD card");
         net.sourceforge.opencamera.ui.StudioTheme.preferences(fragment);

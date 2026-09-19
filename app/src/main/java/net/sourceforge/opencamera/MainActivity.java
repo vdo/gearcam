@@ -1317,6 +1317,12 @@ public class MainActivity extends AppCompatActivity implements PreferenceFragmen
             if (audioMixerDialog != null) audioMixerDialog.refreshDevices();
         });
         usbAudioDevices.resume();
+        if (midiTransport == null) midiTransport = new net.sourceforge.opencamera.audio.MidiTransport(this, () -> {
+            // Only ever starts: the same press on a running take would stop it, and a timer countdown would cancel.
+            if (!camera_in_background && audioMixerDialog == null && preview.isVideo() && !preview.isVideoRecording() && !preview.isTakingPhotoOrOnTimer())
+                takePicture(false);
+        });
+        midiTransport.resume();
         // Audio Config and the top-level folder picker share the camera's SAF destination/history.
         SharedPreferences recordingPrefs = PreferenceManager.getDefaultSharedPreferences(this);
         if (recordingPrefs.getBoolean(PreferenceKeys.UsingSAFPreferenceKey, false)) {
@@ -1510,6 +1516,7 @@ public class MainActivity extends AppCompatActivity implements PreferenceFragmen
     protected void onPause() {
         if (audioStatusView != null) audioStatusView.pause();
         if (usbAudioDevices != null) usbAudioDevices.pause();
+        if (midiTransport != null) midiTransport.pause();
         if (audioMixerDialog != null) { audioMixerDialog.dismiss(); audioMixerDialog = null; }
         long debug_time = 0;
         if( MyDebug.LOG ) {
@@ -2382,6 +2389,7 @@ public class MainActivity extends AppCompatActivity implements PreferenceFragmen
     public net.sourceforge.opencamera.audio.UsbAudioDevices getUsbAudioDevices() { return usbAudioDevices; }
     private net.sourceforge.opencamera.audio.AudioStatusView audioStatusView;
     private net.sourceforge.opencamera.audio.MixerDialog audioMixerDialog;
+    private net.sourceforge.opencamera.audio.MidiTransport midiTransport;
 
     public void dismissAudioMixer() {
         if (audioMixerDialog != null) { audioMixerDialog.dismiss(); audioMixerDialog = null; }
@@ -3180,6 +3188,7 @@ public class MainActivity extends AppCompatActivity implements PreferenceFragmen
         showPreview(true);
 
         preferencesListener.stopListening();
+        if (midiTransport != null) midiTransport.resume(); // picks up the settings switch
 
         // Update the cached settings in DrawPreview
         // Note that some GUI related settings won't trigger preferencesListener.anyChange(), so

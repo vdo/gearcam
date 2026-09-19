@@ -29,6 +29,7 @@ public final class AudioRecorderActivity extends androidx.activity.ComponentActi
     private JamAudioSession session;
     private UsbAudioDevices devices;
     private MixerDialog mixer;
+    private MidiTransport midi;
     private WaveformView waveform;
     private TextView status, elapsed, destination;
     private Button record, config, inputs;
@@ -51,6 +52,7 @@ public final class AudioRecorderActivity extends androidx.activity.ComponentActi
         getWindow().addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON);
         getWindow().clearFlags(WindowManager.LayoutParams.FLAG_FULLSCREEN);
         buildUi();
+        midi = new MidiTransport(this, () -> { if (mixer == null && !recording) start(true); });
         devices = new UsbAudioDevices(this, () -> {
             if (mixer != null) mixer.refreshDevices();
             else if (resumed && !recording && !busy) start(false);
@@ -112,11 +114,11 @@ public final class AudioRecorderActivity extends androidx.activity.ComponentActi
     }
 
     @Override protected void onResume() {
-        super.onResume(); resumed = true; devices.resume(); updateControls(); handler.post(tick);
+        super.onResume(); resumed = true; devices.resume(); midi.resume(); updateControls(); handler.post(tick);
         if (!busy && mixer == null) start(false);
     }
     @Override protected void onPause() {
-        resumed = false; handler.removeCallbacks(tick); devices.pause();
+        resumed = false; handler.removeCallbacks(tick); devices.pause(); midi.pause();
         if (mixer != null) { mixer.dismiss(); mixer = null; }
         if (recording) stop(); else if (!finishing) releaseMonitor(null);
         super.onPause();
@@ -145,6 +147,9 @@ public final class AudioRecorderActivity extends androidx.activity.ComponentActi
     }
     private void start(boolean take) {
         if (!resumed || busy || recording || !permitted(take)) return;
+        if (!take && MidiTransport.enabled(this)) { // live input would hold the USB device, and with it its MIDI
+            status.setText("Waiting for MIDI play or Record · live input starts with the take"); return;
+        }
         busy = true; final int token = ++generation; final String format = RecordingPreferences.format(this);
         JamAudioSession previous = session; session = null; waveform.setSession(null);
         status.setText("Checking selected inputs…"); updateControls();
@@ -217,7 +222,8 @@ public final class AudioRecorderActivity extends androidx.activity.ComponentActi
     private void showConfig() {
         new AlertDialog.Builder(this).setTitle("Recording settings").setItems(new String[] {
                 "Audio format · " + RecordingPreferences.format(this).toUpperCase(Locale.ROOT),
-                "Save location · internal storage / SD card", "Color theme", "Switch to video + audio"}, (dialog, which) -> {
+                "Save location · internal storage / SD card", "Color theme",
+                "Start on MIDI play · " + (MidiTransport.enabled(this) ? "On" : "Off"), "Switch to video + audio"}, (dialog, which) -> {
             if (which == 0) new AlertDialog.Builder(this).setTitle("Audio-only format").setSingleChoiceItems(
                     new String[] {"WAV · 24-bit lossless", "MP3 · 320 kb/s", "FLAC · 24-bit lossless"},
                     java.util.Arrays.asList("wav", "mp3", "flac").indexOf(RecordingPreferences.format(this)), (d, choice) -> {
@@ -226,6 +232,11 @@ public final class AudioRecorderActivity extends androidx.activity.ComponentActi
                     }).setNegativeButton("Cancel", null).show();
             else if (which == 1) RecordingPreferences.chooseFolder(this, this::updateControls);
             else if (which == 2) StudioTheme.choose(this);
+            else if (which == 3) {
+                RecordingPreferences.prefs(this).edit().putBoolean(MidiTransport.ENABLED, !MidiTransport.enabled(this)).apply(); midi.resume();
+                if (MidiTransport.enabled(this)) releaseMonitor(null);
+                start(false);
+            }
             else { RecordingPreferences.prefs(this).edit().putString(RecordingPreferences.MODE, "video").apply(); startActivity(new Intent(this, net.sourceforge.opencamera.MainActivity.class).addFlags(Intent.FLAG_ACTIVITY_CLEAR_TOP | Intent.FLAG_ACTIVITY_SINGLE_TOP)); finish(); }
         }).show();
     }
