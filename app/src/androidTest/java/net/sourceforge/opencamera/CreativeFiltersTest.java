@@ -75,6 +75,20 @@ public class CreativeFiltersTest {
                             assertTrue("Saved B&W must have equal color channels", Math.abs(Color.red(color) - Color.green(color)) <= 5);
                             assertTrue(Math.abs(Color.green(color) - Color.blue(color)) <= 5);
                         }
+                        if (look == 2) { // Noir grain must move: two frames of a static scene cannot match
+                            Bitmap later = retriever.getFrameAtTime(700000, MediaMetadataRetriever.OPTION_CLOSEST);
+                            assertNotNull("Second noir frame", later);
+                            double sum = 0;
+                            int count = 0;
+                            for (int x = 250; x < 310; x += 2) for (int y = 60; y < 180; y += 2) {
+                                sum += Math.abs(Color.red(bitmap.getPixel(x, y)) - Color.red(later.getPixel(x, y)));
+                                count++;
+                            }
+                            double moved = sum / count;
+                            later.recycle();
+                            assertTrue("Noir grain should differ frame to frame, saw " + moved, moved > 0.4);
+                            assertTrue("Noir grain should stay subtle, saw " + moved, moved < 14);
+                        }
                         bitmap.recycle();
                     }
                 } finally { if (filter != null) filter.close(); encoder.release(); file.delete(); }

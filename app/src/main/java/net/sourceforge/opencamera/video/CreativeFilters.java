@@ -45,11 +45,15 @@ public final class CreativeFilters {
     private static float sign(float v) { return Math.abs(v) < 1e-4f ? 0 : Math.signum(v); }
 
     static final String FRAGMENT = "#extension GL_OES_EGL_image_external : require\n"
-            + "precision mediump float; uniform samplerExternalOES image; uniform int look; uniform float accent;\n"
+            + "precision mediump float; uniform samplerExternalOES image; uniform int look; uniform float accent; uniform float seed;\n"
             + "varying vec2 uv; varying vec2 position;\n"
             + "void main() { vec3 c = texture2D(image, uv).rgb; float y = dot(c, vec3(0.2126,0.7152,0.0722));\n"
             + "if (look == 1) c = vec3(y);\n"
-            + "else if (look == 2) { c = vec3(smoothstep(0.16,0.86,y)); c *= 1.0 - 0.40*smoothstep(0.25,0.72,length(position-0.5)); }\n"
+            + "else if (look == 2) {\n"
+            + "  c = vec3(smoothstep(0.11,0.91,y)); c *= 1.0 - 0.40*smoothstep(0.25,0.72,length(position-0.5));\n"
+            + "  float g = fract(sin(dot(position*vec2(917.0,1031.0), vec2(12.9898,78.233)) + seed) * 43758.5453);\n"
+            + "  c += (g - 0.5) * 0.06 * (0.3 + 0.7*(1.0 - abs(2.0*c.r - 1.0)));\n"
+            + "}\n"
             + "else if (look == 3) c = (c*vec3(1.08,1.01,0.88)-0.5)*1.08+0.5;\n"
             + "else if (look == 4) c = (mix(vec3(y),c,0.72)*vec3(0.88,1.03,1.12)-0.5)*1.12+0.5;\n"
             + "else if (look == 5) c = vec3(dot(c,vec3(0.393,0.769,0.189)), dot(c,vec3(0.349,0.686,0.168)), dot(c,vec3(0.272,0.534,0.131)));\n"
