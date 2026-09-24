@@ -1323,6 +1323,13 @@ public class MainActivity extends AppCompatActivity implements PreferenceFragmen
                 takePicture(false);
         });
         midiTransport.resume();
+        if (batteryGuard == null) batteryGuard = new net.sourceforge.opencamera.ui.BatteryGuard(this, () -> {
+            if (preview.isVideoRecording()) {
+                preview.stopVideo(false);
+                preview.showToast(null, "Battery almost empty: recording stopped and saved");
+            }
+        });
+        batteryGuard.resume();
         // Audio Config and the top-level folder picker share the camera's SAF destination/history.
         SharedPreferences recordingPrefs = PreferenceManager.getDefaultSharedPreferences(this);
         if (recordingPrefs.getBoolean(PreferenceKeys.UsingSAFPreferenceKey, false)) {
@@ -1517,6 +1524,7 @@ public class MainActivity extends AppCompatActivity implements PreferenceFragmen
         if (audioStatusView != null) audioStatusView.pause();
         if (usbAudioDevices != null) usbAudioDevices.pause();
         if (midiTransport != null) midiTransport.pause();
+        if (batteryGuard != null) batteryGuard.pause();
         if (audioMixerDialog != null) { audioMixerDialog.dismiss(); audioMixerDialog = null; }
         long debug_time = 0;
         if( MyDebug.LOG ) {
@@ -2390,6 +2398,7 @@ public class MainActivity extends AppCompatActivity implements PreferenceFragmen
     private net.sourceforge.opencamera.audio.AudioStatusView audioStatusView;
     private net.sourceforge.opencamera.audio.MixerDialog audioMixerDialog;
     private net.sourceforge.opencamera.audio.MidiTransport midiTransport;
+    private net.sourceforge.opencamera.ui.BatteryGuard batteryGuard;
 
     public void dismissAudioMixer() {
         if (audioMixerDialog != null) { audioMixerDialog.dismiss(); audioMixerDialog = null; }

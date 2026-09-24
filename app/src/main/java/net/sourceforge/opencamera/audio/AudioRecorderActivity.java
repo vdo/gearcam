@@ -30,8 +30,9 @@ public final class AudioRecorderActivity extends androidx.activity.ComponentActi
     private UsbAudioDevices devices;
     private MixerDialog mixer;
     private MidiTransport midi;
+    private net.sourceforge.opencamera.ui.BatteryGuard batteryGuard;
     private WaveformView waveform;
-    private TextView status, elapsed, destination;
+    private TextView status, elapsed, destination, limit;
     private Button record, config, inputs;
     private volatile boolean resumed;
     private boolean busy, recording, finishing, askedMicrophone;
@@ -53,6 +54,9 @@ public final class AudioRecorderActivity extends androidx.activity.ComponentActi
         getWindow().clearFlags(WindowManager.LayoutParams.FLAG_FULLSCREEN);
         buildUi();
         midi = new MidiTransport(this, () -> { if (mixer == null && !recording) start(true); });
+        batteryGuard = new net.sourceforge.opencamera.ui.BatteryGuard(this, () -> {
+            if (recording) { stop(); android.widget.Toast.makeText(this, "Battery almost empty: recording stopped and saved", android.widget.Toast.LENGTH_LONG).show(); }
+        });
         devices = new UsbAudioDevices(this, () -> {
             if (mixer != null) mixer.refreshDevices();
             else if (resumed && !recording && !busy) start(false);
@@ -85,7 +89,11 @@ public final class AudioRecorderActivity extends androidx.activity.ComponentActi
         LinearLayout details = column(); details.setGravity(Gravity.CENTER_VERTICAL);
         body.addView(details, new LinearLayout.LayoutParams(landscape ? dp(304) : -1, landscape ? -1 : -2));
         elapsed = text(previousTime.toString(), landscape ? 38 : 44); elapsed.setTypeface(Typeface.create("monospace", Typeface.NORMAL));
-        elapsed.setGravity(Gravity.CENTER); elapsed.setPadding(0, 0, 0, dp(12)); details.addView(elapsed);
+        elapsed.setGravity(Gravity.CENTER); elapsed.setPadding(0, 0, 0, dp(2)); details.addView(elapsed);
+        limit = text("", 12); limit.setGravity(Gravity.CENTER); limit.setTextColor(StudioTheme.palette(this).muted);
+        limit.setPadding(0, 0, 0, dp(12));
+        limit.setOnClickListener(v -> net.sourceforge.opencamera.ui.TakeLimit.choose(this, this::updateControls));
+        details.addView(limit);
         destination = text("", 13); destination.setTextColor(StudioTheme.palette(this).muted); destination.setMaxLines(3);
         destination.setEllipsize(android.text.TextUtils.TruncateAt.END);
         destination.setPadding(dp(16), dp(12), dp(16), dp(12)); destination.setMinHeight(dp(64)); destination.setGravity(Gravity.CENTER_VERTICAL);
@@ -114,11 +122,11 @@ public final class AudioRecorderActivity extends androidx.activity.ComponentActi
     }
 
     @Override protected void onResume() {
-        super.onResume(); resumed = true; devices.resume(); midi.resume(); updateControls(); handler.post(tick);
+        super.onResume(); resumed = true; devices.resume(); midi.resume(); batteryGuard.resume(); updateControls(); handler.post(tick);
         if (!busy && mixer == null) start(false);
     }
     @Override protected void onPause() {
-        resumed = false; handler.removeCallbacks(tick); devices.pause(); midi.pause();
+        resumed = false; handler.removeCallbacks(tick); devices.pause(); midi.pause(); batteryGuard.pause();
         if (mixer != null) { mixer.dismiss(); mixer = null; }
         if (recording) stop(); else if (!finishing) releaseMonitor(null);
         super.onPause();
@@ -245,6 +253,9 @@ public final class AudioRecorderActivity extends androidx.activity.ComponentActi
         record.setEnabled(!busy); inputs.setEnabled(!busy); config.setEnabled(!busy && !recording);
         record.setText(recording ? "■  Stop" : "●  Record");
         record.setContentDescription(recording ? "Stop audio recording" : "Start audio recording");
+        String limitLabel = net.sourceforge.opencamera.ui.TakeLimit.label(this);
+        limit.setText(limitLabel == null ? "NO TIME LIMIT   ›" : "STOPS AFTER " + limitLabel.toUpperCase(Locale.ROOT) + "   ›");
+        limit.setTextColor(limitLabel == null ? StudioTheme.palette(this).muted : StudioTheme.palette(this).accent);
         destination.setText("SAVE LOCATION   /   " + RecordingPreferences.format(this).toUpperCase(Locale.ROOT) + "\n" + RecordingPreferences.audioFolderLabel(this) + "   ›");
         destination.setEnabled(!busy && !recording);
         record.setBackgroundTintList(android.content.res.ColorStateList.valueOf(recording ? StudioTheme.RED : StudioTheme.palette(this).accent));
@@ -253,7 +264,15 @@ public final class AudioRecorderActivity extends androidx.activity.ComponentActi
     private final Runnable tick = new Runnable() {
         @Override public void run() {
             if (!resumed) return;
-            if (recording) { long seconds = (SystemClock.elapsedRealtime() - started) / 1000; elapsed.setText(String.format(Locale.ROOT, "%02d:%02d:%02d", seconds / 3600, seconds / 60 % 60, seconds % 60)); }
+            if (recording) {
+                long seconds = (SystemClock.elapsedRealtime() - started) / 1000;
+                elapsed.setText(String.format(Locale.ROOT, "%02d:%02d:%02d", seconds / 3600, seconds / 60 % 60, seconds % 60));
+                int maximum = net.sourceforge.opencamera.ui.TakeLimit.seconds(AudioRecorderActivity.this);
+                if (maximum > 0 && seconds >= maximum) { // video has its encoder to stop it; audio-only stops here
+                    android.widget.Toast.makeText(AudioRecorderActivity.this, "Take length reached: recording saved", android.widget.Toast.LENGTH_LONG).show();
+                    stop();
+                }
+            }
             handler.postDelayed(this, 250);
         }
     };

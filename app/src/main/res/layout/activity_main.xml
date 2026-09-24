@@ -18,6 +18,8 @@
         android:padding="11dp" android:contentDescription="@string/creative_filters" app:srcCompat="@drawable/ic_creative_filter" />
     <ImageButton android:id="@+id/overlay" android:layout_width="44dp" android:layout_height="44dp"
         android:padding="11dp" android:contentDescription="@string/overlays" app:srcCompat="@drawable/ic_overlay" />
+    <ImageButton android:id="@+id/take_limit" android:layout_width="44dp" android:layout_height="44dp"
+        android:padding="11dp" android:contentDescription="@string/take_limit" app:srcCompat="@drawable/ic_take_limit" />
 
     <TextView
         android:id="@+id/audio_status"
