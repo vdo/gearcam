@@ -6214,7 +6214,7 @@ public class Preview implements SurfaceHolder.Callback, TextureView.SurfaceTextu
                 ApplicationInterface.VideoMaxFileSize video_max_filesize = applicationInterface.getVideoMaxFileSizePref();
                 long max_filesize = video_max_filesize.max_filesize;
                 if (jamAudioSession != null) {
-                    long mixerLimit = jamAudioSession.maxVideoBytes(profile.videoBitRate);
+                    long mixerLimit = jamAudioSession.maxVideoBytes(profile.videoBitRate, destinationFreeBytes());
                     max_filesize = max_filesize == 0 ? mixerLimit : Math.min(max_filesize, mixerLimit);
                 }
                 //max_filesize = 15*1024*1024; // test
@@ -6429,7 +6429,7 @@ public class Preview implements SurfaceHolder.Callback, TextureView.SurfaceTextu
             if( jamAudioSession.missingInputs != null )
                 showToast(null, "Recording without " + jamAudioSession.missingInputs + " (not connected)");
             ApplicationInterface.VideoMaxFileSize video_max_filesize = applicationInterface.getVideoMaxFileSizePref();
-            long max_bytes = jamAudioSession.maxVideoBytes(profile.videoBitRate);
+            long max_bytes = jamAudioSession.maxVideoBytes(profile.videoBitRate, destinationFreeBytes());
             if( video_max_filesize.max_filesize > 0 )
                 max_bytes = Math.min(max_bytes, video_max_filesize.max_filesize);
             video_restart_on_max_filesize = false; // one take, one file: stop at the cap
@@ -6476,6 +6476,23 @@ public class Preview implements SurfaceHolder.Callback, TextureView.SurfaceTextu
                 showToast(null, e instanceof NoFreeStorageException ? getContext().getString(R.string.video_no_free_space)
                         : getContext().getString(R.string.gearcam_audio_error, e.getMessage()));
         }
+    }
+
+    /** Free space where this take's video is being written, or 0 if that cannot be read; with a chosen
+     *  folder on a card this is the card, not the app's own storage. */
+    private long destinationFreeBytes() {
+        try {
+            if( videoFileInfo.video_pfd_saf != null ) {
+                android.system.StructStatVfs stat = android.system.Os.fstatvfs(videoFileInfo.video_pfd_saf.getFileDescriptor());
+                return stat.f_bavail * stat.f_frsize;
+            }
+            if( videoFileInfo.video_filename != null )
+                return new java.io.File(videoFileInfo.video_filename).getUsableSpace();
+        }
+        catch(Exception e) {
+            MyDebug.logStackTrace(TAG, "cannot read free space at the destination", e);
+        }
+        return 0;
     }
 
     /** Ends a live take: closes the video track, gives the camera back to the preview, and publishes the MP4

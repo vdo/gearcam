@@ -184,11 +184,19 @@ public final class JamAudioSession {
     public synchronized void startVideo(long monotonicNs) { if (originNs < 0) originNs = monotonicNs; }
 
     /** Video bytes that fit with the audio: a live take is written once; otherwise the finished MP4 is a copy. */
-    public long maxVideoBytes(int videoBitRate) throws IOException {
-        long available = directory.getUsableSpace() - 100_000_000L;
+    /** @param destinationFree free bytes on the volume the video is written to, or 0 when that is this
+     *                          app's own storage. A take saved to a card must be sized against the card. */
+    public long maxVideoBytes(int videoBitRate, long destinationFree) throws IOException {
+        long available = (destinationFree > 0 ? destinationFree : directory.getUsableSpace()) - 100_000_000L;
         double audioRatio = (512000.0 + (settings.preferences.getBoolean("wav_master", true) ? 2304000.0 : 0)) / Math.max(128000, videoBitRate);
-        long limit = (long) (available * 0.9 / ((live != null ? 1 : 2) * (1 + audioRatio)));
-        if (master != null) limit = Math.min(limit, (long) ((0xfffffff0L - 44) / (48000.0 * 6) * videoBitRate / 8));
+        // Sharing a volume, the audio has to come out of the same space; on a card, the video has it all.
+        long limit = (long) (available * 0.9 / ((live != null ? 1 : 2) * (destinationFree > 0 ? 1 : 1 + audioRatio)));
+        if (master != null) {
+            // The WAV master stages in this app's storage whatever the video's destination is.
+            long staging = (long) ((directory.getUsableSpace() - 100_000_000L) * 0.9 / Math.max(1e-6, audioRatio));
+            limit = Math.min(limit, staging);
+            limit = Math.min(limit, (long) ((0xfffffff0L - 44) / (48000.0 * 6) * videoBitRate / 8));
+        }
         if (limit < 20_000_000L) throw new IOException("Not enough free space for recording and finishing the stereo mix");
         return limit;
     }
