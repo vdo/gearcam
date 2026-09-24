@@ -317,7 +317,8 @@ public final class JamAudioSession {
                     missingFrames[i] = missing == 0 ? 0 : missingFrames[i] + missing;
                     if (writing && frame < MixerSettings.RATE) missingFrames[i] = 0; // Initial capture and user-selected sync padding.
                     if (missingFrames[i] > MixerSettings.RATE / 4 && ready.getCount() == 0)
-                        fail(capture.input.label + ": audio stopped arriving. Recording stopped.");
+                        fail(capture.input.label + ": audio stopped arriving after " + (writing ? frame / MixerSettings.RATE : 0)
+                                + " s. Recording stopped." + capture.clockNote());
                 }
                 mixer.mix(input, output, count);
                 updateWaveform(output, count);
@@ -361,6 +362,9 @@ public final class JamAudioSession {
         final DirectUsbCapture directUsb;
         final NoiseGate gate; // phone mic only
         final UsbWhineFilter[] whine; // one per channel, in the gate's place on every other input
+        /** How far the device's sample clock runs from 48 kHz, and how many estimates were unusable. */
+        volatile double clockPercent;
+        volatile int clockRejects;
         final Thread thread;
         private boolean started;
 
@@ -427,6 +431,7 @@ public final class JamAudioSession {
             long fallbackNs = 0;
             long[] usbTiming = new long[4];
             long usbOverflow = 0;
+            boolean clockLocked = false;
             long usbFirstNs = 0;
             boolean announced = false;
             try {
@@ -453,7 +458,14 @@ public final class JamAudioSession {
                         if (anchorNs != 0 && usbTiming[2] - anchorNs >= 500_000_000L && usbTiming[1] > anchorFrame) {
                             double measured = (double) (usbTiming[2] - anchorNs) / (usbTiming[1] - anchorFrame);
                             double nominal = 1_000_000_000.0 / MixerSettings.RATE;
-                            if (measured > nominal * 0.995 && measured < nominal * 1.005) period += 0.1 * (measured - period);
+                            if (measured > nominal * 0.88 && measured < nominal * 1.12) {
+                                // Lock onto the first estimate, then smooth: easing in from the nominal rate
+                                // would spend seconds slipping if the device is far off.
+                                period = clockLocked ? period + 0.1 * (measured - period) : measured;
+                                clockLocked = true;
+                                clockPercent = (period / nominal - 1) * 100;
+                            }
+                            else clockRejects++;
                             anchorNs = usbTiming[2]; anchorFrame = usbTiming[1];
                         } else if (anchorNs == 0) { anchorNs = usbTiming[2]; anchorFrame = usbTiming[1]; }
                         // Arrival jitter must not reposition each block and discard overlapping frames.
@@ -478,6 +490,13 @@ public final class JamAudioSession {
             } catch (Exception e) {
                 if (running) fail(input.label + ": " + e.getMessage());
             } finally { if (!announced) ready.countDown(); }
+        }
+
+        /** What the device's clock was doing, for the error the user actually sees. */
+        String clockNote() {
+            if (directUsb == null) return "";
+            return String.format(java.util.Locale.ROOT, " (USB clock %+.2f%%%s)", clockPercent,
+                    clockRejects > 0 ? ", " + clockRejects + " estimates unusable" : "");
         }
 
         /** The strip switches are live: read them at every settings change, as the faders are. */
