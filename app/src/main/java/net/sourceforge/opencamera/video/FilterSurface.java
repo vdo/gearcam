@@ -26,7 +26,7 @@ public final class FilterSurface implements AutoCloseable {
     private EGLSurface window = EGL14.EGL_NO_SURFACE;
     private SurfaceTexture texture;
     private Surface input;
-    private int program, width, height, transformLocation, lookLocation;
+    private int program, width, height, transformLocation, lookLocation, accentLocation;
     private final FloatBuffer[] vertices = new FloatBuffer[2];
     private int attributeIndex;
     private static EGLDisplay sharedDisplay = EGL14.EGL_NO_DISPLAY;
@@ -80,6 +80,7 @@ public final class FilterSurface implements AutoCloseable {
         attribute("point", new float[] {-1,-1, 1,-1, -1,1, 1,1});
         attribute("coord", new float[] {0,0, 1,0, 0,1, 1,1});
         transformLocation = GLES20.glGetUniformLocation(program, "transform"); lookLocation = GLES20.glGetUniformLocation(program, "look");
+        accentLocation = GLES20.glGetUniformLocation(program, "accent");
         GLES20.glUniform1i(GLES20.glGetUniformLocation(program, "image"), 0);
         int[] names = new int[1]; GLES20.glGenTextures(1, names, 0);
         GLES20.glBindTexture(GLES11Ext.GL_TEXTURE_EXTERNAL_OES, names[0]);
@@ -113,6 +114,7 @@ public final class FilterSurface implements AutoCloseable {
             GLES20.glViewport(0, 0, width, height);
             GLES20.glUniformMatrix4fv(transformLocation, 1, false, transform, 0);
             GLES20.glUniform1i(lookLocation, CreativeFilters.selected(context));
+            GLES20.glUniform1f(accentLocation, CreativeFilters.accentHue(context) / 360f);
             GLES20.glDrawArrays(GLES20.GL_TRIANGLE_STRIP, 0, 4);
             require(GLES20.glGetError() == GLES20.GL_NO_ERROR, "Filter draw");
             EGLExt.eglPresentationTimeANDROID(display, window, timestamp);

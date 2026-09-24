@@ -82,6 +82,42 @@ public final class CameraToolbar {
         updateOverlay(activity, button);
         activity.getPreview().showToast(OVERLAYS[next], true);
     }
+    /** Hue picker for Color Accent. The preview keeps rendering behind it, so dragging shows the result live. */
+    private static void showAccentHue(MainActivity activity) {
+        int pad = StudioTheme.dp(activity, 20);
+        android.widget.FrameLayout frame = new android.widget.FrameLayout(activity);
+        frame.setPadding(pad, pad, pad, pad);
+        int[] wheel = new int[13];
+        for (int i = 0; i < wheel.length; i++) wheel[i] = android.graphics.Color.HSVToColor(new float[] {i * 360f / (wheel.length - 1) % 360, 1, 1});
+        android.graphics.drawable.GradientDrawable rainbow = new android.graphics.drawable.GradientDrawable(
+                android.graphics.drawable.GradientDrawable.Orientation.LEFT_RIGHT, wheel);
+        rainbow.setCornerRadius(StudioTheme.dp(activity, 7));
+        View strip = new View(activity); strip.setBackground(rainbow);
+        android.widget.FrameLayout.LayoutParams stripSize = new android.widget.FrameLayout.LayoutParams(
+                -1, StudioTheme.dp(activity, 14), android.view.Gravity.CENTER_VERTICAL);
+        stripSize.setMargins(StudioTheme.dp(activity, 8), 0, StudioTheme.dp(activity, 8), 0);
+        frame.addView(strip, stripSize);
+        android.widget.SeekBar bar = new android.widget.SeekBar(activity);
+        bar.setMax(359);
+        bar.setProgress(Math.round(CreativeFilters.accentHue(activity)));
+        bar.setProgressDrawable(new android.graphics.drawable.ColorDrawable(0)); // the rainbow behind is the track
+        bar.setOnSeekBarChangeListener(new android.widget.SeekBar.OnSeekBarChangeListener() {
+            @Override public void onProgressChanged(android.widget.SeekBar v, int value, boolean fromUser) {
+                CreativeFilters.setAccentHue(activity, value);
+            }
+            @Override public void onStartTrackingTouch(android.widget.SeekBar v) { }
+            @Override public void onStopTrackingTouch(android.widget.SeekBar v) { }
+        });
+        frame.addView(bar, new android.widget.FrameLayout.LayoutParams(-1, -2, android.view.Gravity.CENTER_VERTICAL));
+        android.app.AlertDialog dialog = new android.app.AlertDialog.Builder(activity)
+                .setTitle("Accent colour · everything else is mono").setView(frame).setPositiveButton("Done", null).create();
+        if (dialog.getWindow() != null) {
+            dialog.getWindow().setDimAmount(0.15f); // keep the preview readable while dragging
+            dialog.getWindow().setGravity(android.view.Gravity.BOTTOM);
+        }
+        dialog.show();
+    }
+
     private static void showFilters(MainActivity activity, ImageButton anchor) {
         PopupMenu menu = new PopupMenu(activity, anchor);
         for (int i = 0; i < CreativeFilters.NAMES.length; i++) menu.getMenu().add(0, i, i, CreativeFilters.NAMES[i]).setCheckable(true).setChecked(i == CreativeFilters.selected(activity));
@@ -96,6 +132,7 @@ public final class CameraToolbar {
                 Toast.makeText(activity, "Stop this take before enabling Camera2 filters", Toast.LENGTH_LONG).show(); return true;
             }
             CreativeFilters.select(activity, selected); updateFilter(activity, anchor);
+            if (selected == CreativeFilters.ACCENT) showAccentHue(activity);
             if (selected != 0 && !camera2) {
                 android.preference.PreferenceManager.getDefaultSharedPreferences(activity).edit()
                         .putString(PreferenceKeys.CameraAPIPreferenceKey, "preference_camera_api_camera2").apply();

@@ -164,6 +164,8 @@ public final class MixerSettings {
     public static final String HIGH_PASS = "/hpf", LOW_PASS = "/lpf";
     /** Phone-mic noise gate (see NoiseGate). */
     public static final String GATE = "phone/gate";
+    /** USB whine canceller, in a non-phone strip's place of the gate (see UsbWhineFilter). */
+    public static final String WHINE = "/whine";
 
     /** Readable device names behind stored channel keys ("usb:vid:pid:Name/3"); null if there are none. */
     public static String describe(java.util.Set<String> channelKeys) {

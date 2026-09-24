@@ -38,7 +38,8 @@ public class CreativeFiltersTest {
         Context context = ApplicationProvider.getApplicationContext();
         PreferenceManager.getDefaultSharedPreferences(context).edit().remove(CreativeFilters.KEY).commit();
         assertEquals("New installs must not apply a filter", 0, CreativeFilters.selected(context));
-        int[][] patches = new int[7][4];
+        int[][] patches = new int[CreativeFilters.NAMES.length][4];
+        CreativeFilters.setAccentHue(context, 120); // green, matching the second test patch
         try {
             for (int look = 0; look < CreativeFilters.NAMES.length; look++) {
                 CreativeFilters.select(context, look);
@@ -53,7 +54,7 @@ public class CreativeFiltersTest {
                 });
                 FilterSurface filter = null;
                 try {
-                    filter = new FilterSurface(context, encoder.surface, 0, 0, () -> error.set("Filter failed"));
+                    filter = new FilterSurface(context, encoder.surface, 0, 0, true, () -> error.set("Filter failed"));
                     Paint paint = new Paint();
                     for (int frame = 0; frame < 24; frame++) {
                         Canvas canvas = filter.input().lockCanvas(null);
@@ -84,6 +85,10 @@ public class CreativeFiltersTest {
             assertTrue("Cool chrome adds blue balance", Color.blue(patches[4][3]) > Color.red(patches[4][3]) + 15);
             assertTrue("Sepia has amber tones", Color.red(patches[5][3]) > Color.blue(patches[5][3]) + 20);
             assertTrue("Fade softens saturation", Color.red(patches[6][0]) - Color.green(patches[6][0]) < Color.red(patches[0][0]) - Color.green(patches[0][0]) - 30);
+            int green = patches[CreativeFilters.ACCENT][1], red = patches[CreativeFilters.ACCENT][0], grey = patches[CreativeFilters.ACCENT][3];
+            assertTrue("Color Accent keeps the chosen hue", Color.green(green) > Color.red(green) + 60);
+            assertTrue("Color Accent drops every other hue", Math.abs(Color.red(red) - Color.blue(red)) <= 8);
+            assertTrue("Color Accent leaves neutrals neutral", Math.abs(Color.red(grey) - Color.blue(grey)) <= 8);
         } finally { CreativeFilters.select(context, 0); }
     }
 

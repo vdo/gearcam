@@ -52,6 +52,7 @@ public final class JamAudioSession {
     public final File directory;
     private final File audioFile;
     private final List<Capture> captures = new ArrayList<>();
+    private final HeadphoneMonitor headphones;
     private final CountDownLatch ready, finished = new CountDownLatch(1);
     private final AtomicBoolean notified = new AtomicBoolean();
     private final SharedPreferences.OnSharedPreferenceChangeListener preferencesListener;
@@ -95,6 +96,7 @@ public final class JamAudioSession {
 
     private JamAudioSession(Context context, boolean recording, FailureListener listener, LiveMuxer live, String audioFormat) throws IOException {
         this.context = context.getApplicationContext(); this.recording = recording; this.live = live;
+        headphones = new HeadphoneMonitor(this.context); // before applySettings(), which switches it
         this.listener = listener; settings = new MixerSettings(context);
         audioFrameLimit = "wav".equals(audioFormat) ? (0xfffffff0L - 44) / 6 : Long.MAX_VALUE;
         syncOffsetNs = audioFormat == null ? Math.round(settings.preferences.getFloat("sync_ms", 0) * 1_000_000.0) : 0;
@@ -161,7 +163,8 @@ public final class JamAudioSession {
             for (int c = 0; c < input.channels; c++) settings.apply(input, c, mixer.channels[offset++]);
         }
         mixer.limiterEnabled = settings.preferences.getBoolean("limiter", true);
-        for (Capture capture : captures) if (capture.gate != null) capture.gate.enabled = settings.preferences.getBoolean(MixerSettings.GATE, false);
+        headphones.setEnabled(settings.preferences.getBoolean(HeadphoneMonitor.KEY, false));
+        for (Capture capture : captures) capture.applySwitches();
     }
 
     /** Bounded startup check, before video starts. Device choices are not treated as guarantees. */
@@ -318,6 +321,7 @@ public final class JamAudioSession {
                 }
                 mixer.mix(input, output, count);
                 updateWaveform(output, count);
+                headphones.write(output, count);
                 if (writing) {
                     if (encoder != null) encoder.write(output, count);
                     if (audioOnlyEncoder != null) {
@@ -337,6 +341,7 @@ public final class JamAudioSession {
             fail("Audio processing failed: " + e.getMessage());
         } finally {
             running = false;
+            headphones.close();
             for (Capture capture : captures) capture.stop();
             for (Capture capture : captures) capture.close();
             if (encoder != null) encoder.close();
@@ -355,6 +360,7 @@ public final class JamAudioSession {
         final AudioRecord recorder;
         final DirectUsbCapture directUsb;
         final NoiseGate gate; // phone mic only
+        final UsbWhineFilter[] whine; // one per channel, in the gate's place on every other input
         final Thread thread;
         private boolean started;
 
@@ -364,7 +370,9 @@ public final class JamAudioSession {
                 throw new IOException("Microphone permission is required");
             buffer = new TimedPcmBuffer(input.channels, MixerSettings.RATE * 2);
             gate = input.phone ? new NoiseGate(MixerSettings.RATE) : null;
-            if (gate != null) gate.enabled = settings.preferences.getBoolean(MixerSettings.GATE, false);
+            whine = input.phone ? null : new UsbWhineFilter[input.channels];
+            if (whine != null) for (int c = 0; c < whine.length; c++) whine[c] = new UsbWhineFilter();
+            applySwitches();
             if (input.directUsb) {
                 recorder = null;
                 directUsb = new DirectUsbCapture(context, input.usbDevice, input.channels);
@@ -463,12 +471,20 @@ public final class JamAudioSession {
                         first = timestamp.nanoTime + Math.round((frames - timestamp.framePosition) * period);
                     }
                     if (gate != null) gate.process(samples, count);
+                    if (whine != null) for (int c = 0; c < whine.length; c++) whine[c].process(samples, count, c, input.channels);
                     buffer.append(samples, count, first, period); frames += count;
                     if (!announced) { announced = true; ready.countDown(); }
                 }
             } catch (Exception e) {
                 if (running) fail(input.label + ": " + e.getMessage());
             } finally { if (!announced) ready.countDown(); }
+        }
+
+        /** The strip switches are live: read them at every settings change, as the faders are. */
+        void applySwitches() {
+            if (gate != null) gate.enabled = settings.preferences.getBoolean(MixerSettings.GATE, false);
+            if (whine != null) for (int c = 0; c < whine.length; c++)
+                whine[c].enabled = settings.preferences.getBoolean(settings.controlKey(input, c) + MixerSettings.WHINE, false);
         }
 
         void stop() {

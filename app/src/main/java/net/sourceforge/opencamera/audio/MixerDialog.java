@@ -119,6 +119,16 @@ public final class MixerDialog {
         soundcheck = button(recordingSession == null ? "Soundcheck" : "Recording");
         soundcheck.setEnabled(recordingSession == null);
         soundcheck.setOnClickListener(v -> { if (monitor == null) startMonitor(); else { stopMonitor(); status.setText("Soundcheck stopped"); } }); toolbar.addView(soundcheck, 1, new LinearLayout.LayoutParams(dp(114), dp(36)));
+        CheckBox monitoring = check("Monitor", settings.preferences.getBoolean(HeadphoneMonitor.KEY, false));
+        monitoring.setContentDescription("Monitor the mix on headphones");
+        monitoring.setOnCheckedChangeListener((v, value) -> {
+            settings.preferences.edit().putBoolean(HeadphoneMonitor.KEY, value).apply();
+            if (!value) status.setText("Monitoring off");
+            else status.setText(HeadphoneMonitor.headphonesConnected(activity)
+                    ? "Monitoring on headphones · Bluetooth runs about 0.2 s behind"
+                    : "Connect headphones to monitor · on the speaker the mic would feed back");
+        });
+        busControls.addView(monitoring);
         Button reset = button("Reset clips"); reset.setOnClickListener(v -> { if (active() != null) active().mixer.resetClips(); }); busControls.addView(reset);
         if (recordingSession != null) {
             Button stop = button("Stop take"); stop.setTextColor(0xffff8275);
@@ -304,7 +314,8 @@ public final class MixerDialog {
         CheckBox mute = check("Mute", settings.preferences.getBoolean(key + "/mute", false)); mute.setOnCheckedChangeListener((v, value) -> settings.preferences.edit().putBoolean(key + "/mute", value).apply()); strip.addView(mute);
         LinearLayout processing = row(); processing.setPadding(0, dp(4), 0, 0); // live, like the fader: the same switches a desk strip has
         ImageButton[] switches = {
-                iconToggle(input.phone ? MixerSettings.GATE : null, net.sourceforge.opencamera.R.drawable.ic_gate, input.phone ? title + " noise gate" : "Noise gate: phone mic only"),
+                input.phone ? iconToggle(MixerSettings.GATE, net.sourceforge.opencamera.R.drawable.ic_gate, title + " noise gate")
+                        : iconToggle(key + MixerSettings.WHINE, net.sourceforge.opencamera.R.drawable.ic_whine, title + " USB whine filter"),
                 iconToggle(key + MixerSettings.LOW_PASS, net.sourceforge.opencamera.R.drawable.ic_lpf, title + " low-pass 20 kHz"),
                 iconToggle(key + MixerSettings.HIGH_PASS, net.sourceforge.opencamera.R.drawable.ic_hpf, title + " high-pass 30 Hz")};
         for (ImageButton s : switches) {
@@ -362,7 +373,7 @@ public final class MixerDialog {
             public void onStartTrackingTouch(SeekBar v) { }
             public void onStopTrackingTouch(SeekBar v) { }
         }); content.addView(sync);
-        content.addView(text("Positive delay moves audio later. Check sync with a clap.\n\n48 kHz throughout: no upsampling. Direct USB chooses its highest available bit depth. The 24-bit WAV master uses your chosen save folder, or Music/GearCam by default (about 1 GB/hour). MP4 audio is AAC.\n\nRed input clipping means the source or adapter overloaded. Lower its hardware gain; a fader cannot repair distortion. Stereo links share gain, balance, mute, filters and recording selection.\n\nHPF removes DC and infrasonic content below 30 Hz, LPF ultrasonic content above 20 kHz: both 3-pole Butterworth (−18 dB/octave), freeing headroom.\n\nNoise gate (phone mic) learns the background and turns it down 20 dB between phrases, so hum and room noise drop out in the pauses. It cannot remove noise under the voice.\n\nDrag a fader vertically. Swipe between strips to see more inputs. Soundcheck uses the recording path without saving.", 13, TEXT));
+        content.addView(text("Positive delay moves audio later. Check sync with a clap.\n\n48 kHz throughout: no upsampling. Direct USB chooses its highest available bit depth. The 24-bit WAV master uses your chosen save folder, or Music/GearCam by default (about 1 GB/hour). MP4 audio is AAC.\n\nRed input clipping means the source or adapter overloaded. Lower its hardware gain; a fader cannot repair distortion. Stereo links share gain, balance, mute, filters and recording selection.\n\nHPF removes DC and infrasonic content below 30 Hz, LPF ultrasonic content above 20 kHz: both 3-pole Butterworth (−18 dB/octave), freeing headroom.\n\nUSB whine filter (inputs other than the phone mic) cancels the 1 kHz comb a USB adapter adds to its own signal. It follows the tones and leaves the music: only a steady note within a few Hz of an exact 1 kHz multiple is touched.\n\nNoise gate (phone mic) learns the background and turns it down 20 dB between phrases, so hum and room noise drop out in the pauses. It cannot remove noise under the voice.\n\nMonitor plays the mix to connected headphones, during soundcheck and while recording. It stays silent on the loudspeaker, where the phone mic would feed back. Bluetooth output lags roughly 0.2 s, so use it to hear the take, not to play in time.\n\nDrag a fader vertically. Swipe between strips to see more inputs. Soundcheck uses the recording path without saving.", 13, TEXT));
         ScrollView helpScroll = new ScrollView(activity); helpScroll.addView(content);
         new android.app.AlertDialog.Builder(activity).setTitle("Recording settings").setView(helpScroll).setPositiveButton("Done", null).show();
     }
