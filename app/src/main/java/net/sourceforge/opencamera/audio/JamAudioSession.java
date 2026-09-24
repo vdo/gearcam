@@ -41,7 +41,9 @@ public final class JamAudioSession {
         } catch (InterruptedException e) { Thread.currentThread().interrupt(); throw new IOException("Audio startup interrupted", e); }
     }
     private void releaseInputs() { if (ownsInputs) { ownsInputs = false; INPUT_LEASE.release(); } }
-    private static final long LATENCY_NS = 150_000_000L;
+    private static final long LATENCY_NS = 250_000_000L;
+    /** How long the mix waits for a capture that has fallen behind before calling the hole a real gap. */
+    private static final long STALL_LIMIT_NS = 2_000_000_000L;
     private final Context context;
     private final MixerSettings settings;
     private final FailureListener listener;
@@ -288,7 +290,8 @@ public final class JamAudioSession {
         long frame = 0;
         long monitorNs = System.nanoTime();
         int[] missingFrames = new int[captures.size()];
-        long lastReportNs = 0;
+        long lastReportNs = 0, stalledNs = 0;
+        boolean gapMode = false;
         boolean writing = false;
         try {
             while (running) {
@@ -310,6 +313,24 @@ public final class JamAudioSession {
                 int count = writing && stopNs >= 0 ? (int) Math.min(BLOCK, Math.max(0, (stopNs - time) * MixerSettings.RATE / 1_000_000_000)) : BLOCK;
                 if (writing) count = (int) Math.min(count, audioFrameLimit - frame);
                 if (count == 0) break;
+                // A capture that has fallen behind is waited for, not read past: a hiccup then costs
+                // latency rather than the take. Only a real silence gets treated as a gap.
+                long needNs = (writing ? time - syncOffsetNs : time) + (long) count * 1_000_000_000L / MixerSettings.RATE;
+                boolean behind = false;
+                for (Capture capture : captures) {
+                    long newest = capture.buffer.newestNs();
+                    if (newest != 0 && newest < needNs) behind = true;
+                }
+                if (behind) {
+                    if (stalledNs == 0) stalledNs = System.nanoTime();
+                    if (!gapMode && System.nanoTime() - stalledNs < STALL_LIMIT_NS) { Thread.sleep(2); continue; }
+                    gapMode = true; // waited long enough: the hole is real, so keep the timeline moving
+                }
+                else if (stalledNs != 0) {
+                    android.util.Log.w("GearCamAudio", "capture caught up after " + (System.nanoTime() - stalledNs) / 1_000_000 + " ms");
+                    stalledNs = 0;
+                    gapMode = false;
+                }
                 int offset = 0;
                 for (int i = 0; i < captures.size(); i++) {
                     Capture capture = captures.get(i);
@@ -319,7 +340,7 @@ public final class JamAudioSession {
                     if (writing && frame < MixerSettings.RATE) missingFrames[i] = 0; // Initial capture and user-selected sync padding.
                     if (missing > 0 && missingFrames[i] == missing)
                         android.util.Log.w("GearCamAudio", "gap starts · " + capture.diagnostics(writing ? time - syncOffsetNs : time));
-                    if (missingFrames[i] > MixerSettings.RATE / 4 && ready.getCount() == 0)
+                    if (missingFrames[i] > MixerSettings.RATE * 5 && ready.getCount() == 0)
                         fail(capture.input.label + ": audio stopped arriving after " + (writing ? frame / MixerSettings.RATE : 0)
                                 + " s. Recording stopped." + capture.clockNote());
                 }
@@ -434,7 +455,7 @@ public final class JamAudioSession {
         }
 
         @Override public void run() {
-            Process.setThreadPriority(Process.THREAD_PRIORITY_AUDIO);
+            Process.setThreadPriority(Process.THREAD_PRIORITY_URGENT_AUDIO);
             int maxFrames = directUsb != null ? BLOCK * 10 : BLOCK; // room to drain a backlog in one read
             float[] samples = new float[maxFrames * input.channels];
             AudioTimestamp timestamp = new AudioTimestamp();

@@ -196,7 +196,7 @@ Java_net_sourceforge_opencamera_audio_DirectUsbCapture_nativeStart(JNIEnv* env, 
         DirectSession* session = from(handle);
         session->stream_handle = session->device_handle->start_streaming(
                 *session->stream_if, *session->config,
-                [session](uint8_t* data, unsigned size) { session->receive(data, size); }, 8);
+                [session](uint8_t* data, unsigned size) { session->receive(data, size); }, 24);
     } catch (const std::exception& error) {
         throw_io(env, error.what());
     }
