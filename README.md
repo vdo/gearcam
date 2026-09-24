@@ -1,7 +1,10 @@
 # GearCam
 
 <p align="center">
-  <img src="docs/logo.png" alt="GearCam" width="200">
+  <picture>
+    <source media="(prefers-color-scheme: dark)" srcset="docs/logo2_w.png">
+    <img src="docs/logo2.png" alt="GearCam" width="220">
+  </picture>
 </p>
 
 GearCam is a video and audio recorder for musical jams, forked from [Open Camera](https://opencamera.org.uk/) 1.56.2. It installs as `app.gearcam`, alongside Open Camera. Copyright and GPLv3+ attribution to Mark Harman and the other Open Camera contributors remain in the source and About screen; see [gpl-3.0.txt](gpl-3.0.txt).
