@@ -124,20 +124,27 @@ public final class CameraToolbar {
         menu.getMenu().setGroupCheckable(0, true, true);
         menu.setOnMenuItemClickListener(item -> {
             int selected = item.getItemId();
-            if (selected != 0 && (activity.getPreview().isVideoHighSpeed() || !activity.supportsCamera2())) {
-                Toast.makeText(activity, "Creative filters need Camera2 at a normal video frame rate", Toast.LENGTH_LONG).show(); return true;
+            // Two quite different reasons to refuse; say which one, so it is clear whether the phone
+            // cannot do this at all or a setting is in the way.
+            if (selected != 0 && activity.getPreview().isVideoHighSpeed()) {
+                Toast.makeText(activity, "Creative filters need a normal frame rate. Turn off slow motion in the video settings.", Toast.LENGTH_LONG).show(); return true;
+            }
+            if (selected != 0 && !activity.supportsCamera2()) {
+                Toast.makeText(activity, "This phone's cameras do not support Camera2, which creative filters are built on", Toast.LENGTH_LONG).show(); return true;
             }
             boolean camera2 = activity.getPreview().getCameraController() != null && activity.getPreview().getCameraController().supportsVideoSurface();
             if (selected != 0 && !camera2 && activity.getPreview().isVideoRecording()) {
                 Toast.makeText(activity, "Stop this take before enabling Camera2 filters", Toast.LENGTH_LONG).show(); return true;
             }
-            CreativeFilters.select(activity, selected); updateFilter(activity, anchor);
-            if (selected == CreativeFilters.ACCENT) showAccentHue(activity);
+            // Switch the API before selecting: a camera that opens on the old API with a filter already
+            // set resets it to Original and says so, which is what made this look unsupported.
             if (selected != 0 && !camera2) {
                 android.preference.PreferenceManager.getDefaultSharedPreferences(activity).edit()
                         .putString(PreferenceKeys.CameraAPIPreferenceKey, "preference_camera_api_camera2").apply();
                 activity.updateForSettings(true);
             }
+            CreativeFilters.select(activity, selected); updateFilter(activity, anchor);
+            if (selected == CreativeFilters.ACCENT) showAccentHue(activity);
             return true;
         });
         menu.show();

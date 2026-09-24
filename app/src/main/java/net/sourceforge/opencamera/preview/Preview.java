@@ -2287,7 +2287,8 @@ public class Preview implements SurfaceHolder.Callback, TextureView.SurfaceTextu
         camera_controller.setVideoHighSpeed(is_video && video_high_speed);
         if ((!using_android_l || video_high_speed) && net.sourceforge.opencamera.video.CreativeFilters.selected(getContext()) != 0) {
             net.sourceforge.opencamera.video.CreativeFilters.select(getContext(), 0);
-            showToast(null, "Original selected · creative filters require normal-speed Camera2 video");
+            showToast(null, video_high_speed ? "Filters turned off: this resolution and frame rate record as high speed"
+                    : "Filters turned off: this camera opened on the old camera API");
         }
 
         if( do_startup_focus && using_android_l && camera_controller.supportsAutoFocus() ) {
