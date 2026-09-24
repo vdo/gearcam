@@ -67,7 +67,7 @@ final class AacEncoder implements AutoCloseable {
     void write(float[] samples, int count) throws IOException {
         int offset = Math.min(priming, count); // skip the encoder's priming delay at the start (see PRIMING)
         priming -= offset;
-        long deadline = System.nanoTime() + 3_000_000_000L;
+        long deadline = System.nanoTime() + 30_000_000_000L;
         while (offset < count) {
             int index = codec.dequeueInputBuffer(10000);
             if (index >= 0) {
@@ -99,7 +99,7 @@ final class AacEncoder implements AutoCloseable {
     }
 
     void finish() throws IOException {
-        long deadline = System.nanoTime() + 3_000_000_000L;
+        long deadline = System.nanoTime() + 10_000_000_000L;
         boolean queued = false;
         while (!eos) {
             if (!queued) {

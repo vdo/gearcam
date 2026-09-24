@@ -243,7 +243,8 @@ public final class JamAudioSession {
                 if (masterFile != null) MixedVideoSaver.saveMaster(context, masterFile, directory.getName());
                 cleanup();
             } catch (Exception e) {
-                error = e.getMessage() + "\nRecovery files: " + directory.getAbsolutePath();
+                // Only send the user to the recovery folder when the video really did not survive.
+                error = e.getMessage() + (videoSaved ? "" : "\nRecovery files: " + directory.getAbsolutePath());
             }
             callback.finished(videoSaved, error);
         }, "GearCam finish").start();

@@ -6507,8 +6507,9 @@ public class Preview implements SurfaceHolder.Callback, TextureView.SurfaceTextu
             if( error != null ) {
                 Log.e(TAG, "GearCam recording: " + error);
                 if( !activity.isFinishing() && !activity.isDestroyed() )
-                    new android.app.AlertDialog.Builder(activity).setTitle(videoSaved ? "Recording saved with a problem" : "Recording needs recovery")
-                            .setMessage(error).setPositiveButton(android.R.string.ok, null).show();
+                    new android.app.AlertDialog.Builder(activity).setTitle(videoSaved ? "Recording saved" : "Recording needs recovery")
+                            .setMessage(videoSaved ? "The video is saved and plays normally. The audio ended early: " + error : error)
+                            .setPositiveButton(android.R.string.ok, null).show();
             }
         }));
     }
