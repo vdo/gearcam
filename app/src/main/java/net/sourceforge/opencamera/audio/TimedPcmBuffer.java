@@ -58,6 +58,12 @@ public final class TimedPcmBuffer {
         catch (UnsatisfiedLinkError e) { return false; }
     }
 
+    /** Timestamp of the newest buffered frame, or 0 when empty: how far capture has got. */
+    public synchronized long newestNs() { return size == 0 ? 0 : times[(head + size - 1) % capacity]; }
+
+    /** Frames held, for diagnosing starvation against overflow. */
+    public synchronized int size() { return size; }
+
     /** Same nominal sample rate; band-limited fractional delay aligns independent device clocks. */
     public synchronized int read(long firstNs, int rate, float[][] output, int offset, int frames) {
         return read(firstNs, rate, output, offset, frames, NATIVE);

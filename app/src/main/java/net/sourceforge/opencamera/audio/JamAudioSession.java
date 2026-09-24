@@ -288,6 +288,7 @@ public final class JamAudioSession {
         long frame = 0;
         long monitorNs = System.nanoTime();
         int[] missingFrames = new int[captures.size()];
+        long lastReportNs = 0;
         boolean writing = false;
         try {
             while (running) {
@@ -316,9 +317,16 @@ public final class JamAudioSession {
                     offset += capture.input.channels;
                     missingFrames[i] = missing == 0 ? 0 : missingFrames[i] + missing;
                     if (writing && frame < MixerSettings.RATE) missingFrames[i] = 0; // Initial capture and user-selected sync padding.
+                    if (missing > 0 && missingFrames[i] == missing)
+                        android.util.Log.w("GearCamAudio", "gap starts · " + capture.diagnostics(writing ? time - syncOffsetNs : time));
                     if (missingFrames[i] > MixerSettings.RATE / 4 && ready.getCount() == 0)
                         fail(capture.input.label + ": audio stopped arriving after " + (writing ? frame / MixerSettings.RATE : 0)
                                 + " s. Recording stopped." + capture.clockNote());
+                }
+                if (System.nanoTime() - lastReportNs > 2_000_000_000L) {
+                    lastReportNs = System.nanoTime();
+                    for (Capture capture : captures)
+                        android.util.Log.i("GearCamAudio", (writing ? "recording · " : "monitor · ") + capture.diagnostics(writing ? time - syncOffsetNs : time));
                 }
                 mixer.mix(input, output, count);
                 updateWaveform(output, count);
@@ -365,6 +373,9 @@ public final class JamAudioSession {
         /** How far the device's sample clock runs from 48 kHz, and how many estimates were unusable. */
         volatile double clockPercent;
         volatile int clockRejects;
+        /** Capture-side counters, read by the diagnostic line below. */
+        volatile long framesAppended, deviceFrames, overflowFrames;
+        volatile double periodNs;
         final Thread thread;
         private boolean started;
 
@@ -424,7 +435,8 @@ public final class JamAudioSession {
 
         @Override public void run() {
             Process.setThreadPriority(Process.THREAD_PRIORITY_AUDIO);
-            float[] samples = new float[BLOCK * input.channels];
+            int maxFrames = directUsb != null ? BLOCK * 10 : BLOCK; // room to drain a backlog in one read
+            float[] samples = new float[maxFrames * input.channels];
             AudioTimestamp timestamp = new AudioTimestamp();
             long frames = 0, anchorFrame = 0, anchorNs = 0;
             double period = 1_000_000_000.0 / MixerSettings.RATE;
@@ -438,7 +450,7 @@ public final class JamAudioSession {
                 while (running) {
                     int read;
                     if (directUsb != null) {
-                        int usbFrames = directUsb.read(samples, BLOCK, usbTiming);
+                        int usbFrames = directUsb.read(samples, maxFrames, usbTiming);
                         read = usbFrames < 0 ? usbFrames : usbFrames * input.channels;
                     } else {
                         read = recorder.read(samples, 0, samples.length, AudioRecord.READ_BLOCKING);
@@ -482,6 +494,8 @@ public final class JamAudioSession {
                         } else if (anchorNs == 0) { anchorNs = timestamp.nanoTime; anchorFrame = timestamp.framePosition; }
                         first = timestamp.nanoTime + Math.round((frames - timestamp.framePosition) * period);
                     }
+                    framesAppended = frames + count; periodNs = period;
+                    if (directUsb != null) { deviceFrames = usbTiming[1]; overflowFrames = usbTiming[3]; }
                     if (gate != null) gate.process(samples, count);
                     if (whine != null) for (int c = 0; c < whine.length; c++) whine[c].process(samples, count, c, input.channels);
                     buffer.append(samples, count, first, period); frames += count;
@@ -490,6 +504,15 @@ public final class JamAudioSession {
             } catch (Exception e) {
                 if (running) fail(input.label + ": " + e.getMessage());
             } finally { if (!announced) ready.countDown(); }
+        }
+
+        /** Everything worth knowing when audio stops arriving: is capture starving, drifting or dropping? */
+        String diagnostics(long readNs) {
+            return String.format(java.util.Locale.ROOT,
+                    "%s: appended=%d behind=%d buffered=%d lead=%+.0fms period=%.2fns (%+.2f%%) rejects=%d overflow=%d",
+                    input.label, framesAppended, deviceFrames - framesAppended, buffer.size(),
+                    buffer.newestNs() == 0 ? 0 : (buffer.newestNs() - readNs) / 1e6,
+                    periodNs, clockPercent, clockRejects, overflowFrames);
         }
 
         /** What the device's clock was doing, for the error the user actually sees. */
