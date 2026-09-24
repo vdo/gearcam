@@ -146,3 +146,43 @@ Java_net_sourceforge_opencamera_audio_PcmMixer_nativeLimit(
     env->SetFloatArrayRegion(output, 0, frames * 2, bus.data());
     env->SetFloatArrayRegion(state_array, 0, 5, state);
 }
+
+/** UsbWhineFilter's cascade, natively: one LMS-adapted sine per harmonic of the USB frame rate.
+ *  In Java this cost more than real time on a phone and starved the capture thread. Keep in step
+ *  with process() in UsbWhineFilter.java. weights holds cos then sin gains, one pair per harmonic. */
+extern "C" JNIEXPORT jint JNICALL
+Java_net_sourceforge_opencamera_audio_UsbWhineFilter_nativeProcess(
+        JNIEnv* env, jclass, jfloatArray samples_array, jint frames, jint channel, jint stride,
+        jfloatArray weights_array, jint phase, jint period, jint harmonics, jint fastest, jfloat mu, jfloat makeup) {
+    jfloat* samples = static_cast<jfloat*>(env->GetPrimitiveArrayCritical(samples_array, nullptr));
+    jfloat* weights = static_cast<jfloat*>(env->GetPrimitiveArrayCritical(weights_array, nullptr));
+    if (samples == nullptr || weights == nullptr) {
+        if (samples != nullptr) env->ReleasePrimitiveArrayCritical(samples_array, samples, 0);
+        if (weights != nullptr) env->ReleasePrimitiveArrayCritical(weights_array, weights, 0);
+        return phase;
+    }
+    // The table closes after one period, so every harmonic indexes the same sines.
+    std::vector<float> table_cos(period), table_sin(period);
+    for (int i = 0; i < period; ++i) {
+        table_cos[i] = std::cos(2 * M_PI * i / period);
+        table_sin[i] = std::sin(2 * M_PI * i / period);
+    }
+    for (int f = 0; f < frames; ++f) {
+        const int n = phase;
+        phase = (phase + 1) % period;
+        float x = samples[f * stride + channel];
+        for (int k = 1; k <= harmonics; ++k) {
+            const int index = k * n % period;
+            const float cosine = table_cos[index], sine = table_sin[index];
+            const float error = x - (weights[k * 2] * cosine + weights[k * 2 + 1] * sine);
+            const float step = mu * (k < fastest ? k : fastest) * error;
+            weights[k * 2] += step * cosine;
+            weights[k * 2 + 1] += step * sine;
+            x = error;
+        }
+        samples[f * stride + channel] = x * makeup;
+    }
+    env->ReleasePrimitiveArrayCritical(weights_array, weights, 0);
+    env->ReleasePrimitiveArrayCritical(samples_array, samples, 0);
+    return phase;
+}

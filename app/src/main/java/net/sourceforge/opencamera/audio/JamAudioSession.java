@@ -284,7 +284,7 @@ public final class JamAudioSession {
     }
 
     private void process() {
-        Process.setThreadPriority(Process.THREAD_PRIORITY_AUDIO);
+        Process.setThreadPriority(Process.THREAD_PRIORITY_URGENT_AUDIO);
         float[][] input = new float[mixer.channels.length][BLOCK];
         float[] output = new float[BLOCK * 2];
         long frame = 0;
@@ -346,8 +346,10 @@ public final class JamAudioSession {
                 }
                 if (System.nanoTime() - lastReportNs > 2_000_000_000L) {
                     lastReportNs = System.nanoTime();
-                    for (Capture capture : captures)
+                    for (Capture capture : captures) {
                         android.util.Log.i("GearCamAudio", (writing ? "recording · " : "monitor · ") + capture.diagnostics(writing ? time - syncOffsetNs : time));
+                        capture.resetTiming();
+                    }
                 }
                 mixer.mix(input, output, count);
                 updateWaveform(output, count);
@@ -397,6 +399,8 @@ public final class JamAudioSession {
         /** Capture-side counters, read by the diagnostic line below. */
         volatile long framesAppended, deviceFrames, overflowFrames;
         volatile double periodNs;
+        /** Where the capture loop spends its time, reset at every report. */
+        volatile long readMaxNs, appendMaxNs, otherMaxNs, filterMaxNs, loopNs, calls, framesPerCall;
         final Thread thread;
         private boolean started;
 
@@ -470,6 +474,7 @@ public final class JamAudioSession {
             try {
                 while (running) {
                     int read;
+                    long readStartNs = System.nanoTime();
                     if (directUsb != null) {
                         int usbFrames = directUsb.read(samples, maxFrames, usbTiming);
                         read = usbFrames < 0 ? usbFrames : usbFrames * input.channels;
@@ -480,6 +485,7 @@ public final class JamAudioSession {
                     if (read < 0) throw new IOException((directUsb == null ? "AudioRecord" : "USB capture") + " stopped (" + read + ")");
                     if (read == 0) continue;
                     if (read % input.channels != 0) throw new IOException("Incomplete multichannel audio frame");
+                    long readEndNs = System.nanoTime();
                     checkRoute();
                     int count = read / input.channels;
                     long now = System.nanoTime();
@@ -516,10 +522,20 @@ public final class JamAudioSession {
                         first = timestamp.nanoTime + Math.round((frames - timestamp.framePosition) * period);
                     }
                     framesAppended = frames + count; periodNs = period;
+                    if (readEndNs - readStartNs > readMaxNs) readMaxNs = readEndNs - readStartNs;
+                    long otherNs = System.nanoTime() - readEndNs;
+                    if (otherNs > otherMaxNs) otherMaxNs = otherNs;
                     if (directUsb != null) { deviceFrames = usbTiming[1]; overflowFrames = usbTiming[3]; }
+                    long filterStartNs = System.nanoTime();
                     if (gate != null) gate.process(samples, count);
                     if (whine != null) for (int c = 0; c < whine.length; c++) whine[c].process(samples, count, c, input.channels);
+                    long filterNs = System.nanoTime() - filterStartNs;
+                    if (filterNs > filterMaxNs) filterMaxNs = filterNs;
+                    long appendStartNs = System.nanoTime();
                     buffer.append(samples, count, first, period); frames += count;
+                    long appendNs = System.nanoTime() - appendStartNs;
+                    if (appendNs > appendMaxNs) appendMaxNs = appendNs;
+                    loopNs += System.nanoTime() - readStartNs; calls++; framesPerCall += count;
                     if (!announced) { announced = true; ready.countDown(); }
                 }
             } catch (Exception e) {
@@ -533,8 +549,13 @@ public final class JamAudioSession {
                     "%s: appended=%d behind=%d buffered=%d lead=%+.0fms period=%.2fns (%+.2f%%) rejects=%d overflow=%d",
                     input.label, framesAppended, deviceFrames - framesAppended, buffer.size(),
                     buffer.newestNs() == 0 ? 0 : (buffer.newestNs() - readNs) / 1e6,
-                    periodNs, clockPercent, clockRejects, overflowFrames);
+                    periodNs, clockPercent, clockRejects, overflowFrames)
+                    + String.format(java.util.Locale.ROOT, " | calls=%d frames/call=%d busy=%.0f%% read<=%.0fms filter<=%.0fms append<=%.0fms other<=%.0fms",
+                    calls, calls == 0 ? 0 : framesPerCall / calls, loopNs / 2e7, readMaxNs / 1e6, filterMaxNs / 1e6, appendMaxNs / 1e6, otherMaxNs / 1e6);
         }
+
+        /** Start a fresh window after every report, so a stall shows where it happened. */
+        void resetTiming() { readMaxNs = appendMaxNs = otherMaxNs = filterMaxNs = loopNs = calls = framesPerCall = 0; }
 
         /** What the device's clock was doing, for the error the user actually sees. */
         String clockNote() {

@@ -25,7 +25,13 @@ final class UsbWhineFilter {
         }
     }
 
-    private final float[] weightCos = new float[HARMONICS + 1], weightSin = new float[HARMONICS + 1];
+    /** Cosine and sine gain per harmonic, interleaved, so the native loop shares this state. */
+    private final float[] weights = new float[(HARMONICS + 1) * 2];
+    private static final boolean NATIVE = loadNative();
+    private static boolean loadNative() {
+        try { System.loadLibrary("gearcam_audio"); return true; }
+        catch (UnsatisfiedLinkError e) { return false; } // JVM unit tests run the Java loop below
+    }
     private int phase;
     private boolean running;
     volatile boolean enabled;
@@ -35,8 +41,11 @@ final class UsbWhineFilter {
         if (!enabled) { running = false; return; }
         if (!running) { // weights left from an earlier take would add back the tone they last cancelled
             running = true;
-            java.util.Arrays.fill(weightCos, 0);
-            java.util.Arrays.fill(weightSin, 0);
+            java.util.Arrays.fill(weights, 0);
+        }
+        if (NATIVE) { // in Java this costs more than real time on a phone and starves capture
+            phase = nativeProcess(samples, frames, channel, stride, weights, phase, PERIOD, HARMONICS, FASTEST, MU, MAKEUP);
+            return;
         }
         for (int f = 0; f < frames; f++) {
             int n = phase;
@@ -45,13 +54,17 @@ final class UsbWhineFilter {
             for (int k = 1; k <= HARMONICS; k++) {
                 int index = k * n % PERIOD; // every harmonic of 1 kHz closes in the same 48-sample table
                 float cos = COS[index], sin = SIN[index];
-                float error = x - (weightCos[k] * cos + weightSin[k] * sin);
+                float error = x - (weights[k * 2] * cos + weights[k * 2 + 1] * sin);
                 float step = MU * Math.min(k, FASTEST) * error;
-                weightCos[k] += step * cos;
-                weightSin[k] += step * sin;
+                weights[k * 2] += step * cos;
+                weights[k * 2 + 1] += step * sin;
                 x = error;
             }
             samples[f * stride + channel] = x * MAKEUP;
         }
     }
+
+    /** The loop above, natively; returns the new phase. */
+    private static native int nativeProcess(float[] samples, int frames, int channel, int stride,
+            float[] weights, int phase, int period, int harmonics, int fastest, float mu, float makeup);
 }
