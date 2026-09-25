@@ -6425,11 +6425,15 @@ public class Preview implements SurfaceHolder.Callback, TextureView.SurfaceTextu
                 muxer.setLocation((float)location.getLatitude(), (float)location.getLongitude());
             }
             jamAudioSession = new JamAudioSession(getContext(), true, mixFailureListener(), muxer);
+            jamAudioSession.watchFreeSpace(this::destinationFreeBytes);
             jamAudioSession.awaitReady();
             if( jamAudioSession.missingInputs != null )
                 showToast(null, "Recording without " + jamAudioSession.missingInputs + " (not connected)");
             ApplicationInterface.VideoMaxFileSize video_max_filesize = applicationInterface.getVideoMaxFileSizePref();
             long max_bytes = jamAudioSession.maxVideoBytes(profile.videoBitRate, destinationFreeBytes());
+            long fileSizeCeiling = destinationFileSizeLimit();
+            if( fileSizeCeiling > 0 )
+                max_bytes = Math.min(max_bytes, fileSizeCeiling);
             if( video_max_filesize.max_filesize > 0 )
                 max_bytes = Math.min(max_bytes, video_max_filesize.max_filesize);
             video_restart_on_max_filesize = false; // one take, one file: stop at the cap
@@ -6476,6 +6480,36 @@ public class Preview implements SurfaceHolder.Callback, TextureView.SurfaceTextu
                 showToast(null, e instanceof NoFreeStorageException ? getContext().getString(R.string.video_no_free_space)
                         : getContext().getString(R.string.gearcam_audio_error, e.getMessage()));
         }
+    }
+
+    /** A FAT32 card cannot hold a file over 4 GB, whatever space is left on it. Returns the size to stop
+     *  short at when the destination is such a card, or 0 when there is no such ceiling. */
+    private long destinationFileSizeLimit() {
+        String volume = null;
+        try {
+            if( videoFileInfo.video_uri != null ) {
+                String id = android.provider.DocumentsContract.getDocumentId(videoFileInfo.video_uri);
+                int colon = id == null ? -1 : id.indexOf(':');
+                if( colon > 0 )
+                    volume = id.substring(0, colon); // e.g. "204F-0468", the card's volume id
+            }
+            if( volume == null || volume.equals("primary") )
+                return 0; // this phone's own storage is ext4 or f2fs
+            try( java.io.BufferedReader reader = new java.io.BufferedReader(new java.io.FileReader("/proc/mounts")) ) {
+                String line;
+                while( (line = reader.readLine()) != null ) {
+                    if( !line.contains(volume) )
+                        continue;
+                    String[] parts = line.split(" ");
+                    if( parts.length > 2 && (parts[2].equals("vfat") || parts[2].equals("msdos")) )
+                        return 4L * 1024 * 1024 * 1024 - 32_000_000L; // room to close the file below the wall
+                }
+            }
+        }
+        catch(Exception e) {
+            MyDebug.logStackTrace(TAG, "cannot tell what the destination is formatted as", e);
+        }
+        return 0;
     }
 
     /** Free space where this take's video is being written, or 0 if that cannot be read; with a chosen

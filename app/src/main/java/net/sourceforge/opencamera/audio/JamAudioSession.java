@@ -27,6 +27,8 @@ import java.util.concurrent.atomic.AtomicBoolean;
 /** Captures explicitly routed devices and mixes them on a shared monotonic timeline. */
 public final class JamAudioSession {
     public interface FailureListener { void failed(String message); }
+    /** Free bytes where this take is being written, checked as it runs. */
+    public interface FreeSpace { long bytes(); }
     public interface SaveListener { void finished(String error); }
     /** videoSaved: the MP4 is complete and playable; error: what went wrong, if anything (audio, WAV master). */
     public interface LiveListener { void finished(boolean videoSaved, String error); }
@@ -54,6 +56,7 @@ public final class JamAudioSession {
     public final File directory;
     private final File audioFile;
     private final List<Capture> captures = new ArrayList<>();
+    private volatile FreeSpace freeSpace;
     private final HeadphoneMonitor headphones;
     private final CountDownLatch ready, finished = new CountDownLatch(1);
     private final AtomicBoolean notified = new AtomicBoolean();
@@ -200,6 +203,9 @@ public final class JamAudioSession {
         if (limit < 20_000_000L) throw new IOException("Not enough free space for recording and finishing the stereo mix");
         return limit;
     }
+
+    /** Watch the destination as the take runs: an estimate made at the start cannot see a card filling up. */
+    public void watchFreeSpace(FreeSpace destination) { this.freeSpace = destination; }
 
     public void stopVideo() { if (stopNs < 0) stopNs = System.nanoTime(); }
 
@@ -355,6 +361,16 @@ public final class JamAudioSession {
                 }
                 if (System.nanoTime() - lastReportNs > 2_000_000_000L) {
                     lastReportNs = System.nanoTime();
+                    // A full card stalls the muxer, the capture ring then overflows, and the take dies
+                    // reported as missing audio. Stop first, while there is room to close the file.
+                    FreeSpace destination = freeSpace;
+                    if (writing && destination != null) {
+                        long free = destination.bytes();
+                        if (free > 0 && free < 100_000_000L) {
+                            fail("Save location is almost full (" + free / 1_000_000L + " MB left). Recording stopped.");
+                            break;
+                        }
+                    }
                     for (Capture capture : captures) {
                         android.util.Log.i("GearCamAudio", (writing ? "recording · " : "monitor · ") + capture.diagnostics(writing ? time - syncOffsetNs : time));
                         capture.resetTiming();
@@ -559,6 +575,7 @@ public final class JamAudioSession {
                     input.label, framesAppended, deviceFrames - framesAppended, buffer.size(),
                     buffer.newestNs() == 0 ? 0 : (buffer.newestNs() - readNs) / 1e6,
                     periodNs, clockPercent, clockRejects, overflowFrames)
+                    + (freeSpace == null ? "" : String.format(java.util.Locale.ROOT, " free=%dMB", freeSpace.bytes() / 1_000_000L))
                     + String.format(java.util.Locale.ROOT, " | calls=%d frames/call=%d busy=%.0f%% read<=%.0fms filter<=%.0fms append<=%.0fms other<=%.0fms",
                     calls, calls == 0 ? 0 : framesPerCall / calls, loopNs / 2e7, readMaxNs / 1e6, filterMaxNs / 1e6, appendMaxNs / 1e6, otherMaxNs / 1e6);
         }
