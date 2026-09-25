@@ -909,6 +909,10 @@ public class PopupView extends LinearLayout {
                     }
                 });
             }
+            // How long a take may run before it stops itself: the top bar has no room for this.
+            addRadioOptionsToPopup(sharedPreferences, TakeLimit.names(), TakeLimit.values(), TakeLimit.TITLE,
+                    PreferenceKeys.VideoMaxDurationPreferenceKey, "0", null, "TAKE_LIMIT", null);
+
             if( MyDebug.LOG )
                 Log.d(TAG, "PopupView time 11: " + (System.nanoTime() - debug_time));
 

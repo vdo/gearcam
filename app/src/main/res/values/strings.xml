@@ -1114,5 +1114,4 @@
     <string name="gearcam_audio_codecs_license" translatable="false">MP3 and FLAC encoder licenses</string>
     <string name="creative_filters" translatable="false">Creative filters</string>
     <string name="overlays" translatable="false">Overlays</string>
-    <string name="take_limit" translatable="false">Stop the take after</string>
 </resources>

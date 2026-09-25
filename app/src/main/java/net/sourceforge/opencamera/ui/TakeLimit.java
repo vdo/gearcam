@@ -13,6 +13,15 @@ public final class TakeLimit {
     private static final int[] SECONDS = {0, 5 * 60, 10 * 60, 15 * 60, 30 * 60, 45 * 60, 3600, 2 * 3600, 3 * 3600};
     private static final String[] NAMES = {"No limit", "5 minutes", "10 minutes", "15 minutes", "30 minutes",
             "45 minutes", "1 hour", "2 hours", "3 hours"};
+    public static final String TITLE = "Stop the take after";
+
+    /** The same choices for the camera's popup menu, which drives them by preference value. */
+    public static java.util.List<String> names() { return java.util.Arrays.asList(NAMES); }
+    public static java.util.List<String> values() {
+        java.util.List<String> values = new java.util.ArrayList<>();
+        for (int seconds : SECONDS) values.add(String.valueOf(seconds));
+        return values;
+    }
 
     private TakeLimit() {}
 
@@ -35,7 +44,7 @@ public final class TakeLimit {
     public static void choose(Activity activity, Runnable changed) {
         int current = 0, chosen = seconds(activity);
         for (int i = 0; i < SECONDS.length; i++) if (SECONDS[i] == chosen) current = i;
-        new AlertDialog.Builder(activity).setTitle("Stop the take after")
+        new AlertDialog.Builder(activity).setTitle(TITLE)
                 .setSingleChoiceItems(NAMES, current, (dialog, which) -> {
                     PreferenceManager.getDefaultSharedPreferences(activity).edit()
                             .putString(PreferenceKeys.VideoMaxDurationPreferenceKey, String.valueOf(SECONDS[which])).apply();
