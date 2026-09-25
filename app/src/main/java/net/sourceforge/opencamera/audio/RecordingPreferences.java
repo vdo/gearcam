@@ -102,6 +102,13 @@ public final class RecordingPreferences {
             folder.setKey("gearcam_save_folder"); folder.setTitle("Save location"); folder.setOrder(-2);
             folder.setOnPreferenceClickListener(p -> { chooseFolder(fragment.getActivity()); return true; });
             fragment.getPreferenceScreen().addPreference(folder);
+            ListPreference length = new ListPreference(fragment.getActivity());
+            length.setKey(PreferenceKeys.VideoMaxDurationPreferenceKey);
+            length.setTitle(net.sourceforge.opencamera.ui.TakeLimit.TITLE); length.setOrder(-1);
+            length.setEntries(net.sourceforge.opencamera.ui.TakeLimit.names().toArray(new String[0]));
+            length.setEntryValues(net.sourceforge.opencamera.ui.TakeLimit.values().toArray(new String[0]));
+            length.setDefaultValue("0"); length.setSummary("%s");
+            fragment.getPreferenceScreen().addPreference(length);
             android.preference.SwitchPreference midi = new android.preference.SwitchPreference(fragment.getActivity());
             midi.setKey(MidiTransport.ENABLED); midi.setTitle("Start recording on MIDI play"); midi.setOrder(-1);
             midi.setSummary("A Start or Continue from a USB MIDI device starts the take. Audio only: live input waits for the take"); midi.setDefaultValue(false);

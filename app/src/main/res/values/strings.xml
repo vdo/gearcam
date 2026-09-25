@@ -386,6 +386,8 @@
     <string name="duration_30m">30 minutes</string>
     <string name="duration_45m">45 minutes</string>
     <string name="duration_1h">1 hour</string>
+    <string name="duration_2h" translatable="false">2 hours</string>
+    <string name="duration_3h" translatable="false">3 hours</string>
 
     <string name="preference_show_take_photo">Show \"Take Photo\" icon</string>
     <string name="preference_show_take_photo_summary">Show the icon for taking photos and recording videos. Uncheck if you\'d rather take photos by other methods (e.g., if your device has a hardware shutter button, or using the volume keys).</string>
