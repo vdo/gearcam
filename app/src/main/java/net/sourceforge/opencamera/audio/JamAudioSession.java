@@ -290,12 +290,38 @@ public final class JamAudioSession {
     }
 
     private void fail(String message) {
+        log("STOPPED · " + message);
         if (notified.compareAndSet(false, true)) {
             android.util.Log.e("GearCam", "Audio session failed: " + message);
             failure = message;
             stopVideo();
             listener.failed(message);
         }
+    }
+
+    private java.io.PrintWriter logFile;
+    private final java.text.SimpleDateFormat logClock = new java.text.SimpleDateFormat("HH:mm:ss.SSS", java.util.Locale.ROOT);
+
+    /** Diagnostics go to a file as well as logcat: a long take ends hours before the phone can be plugged
+     *  in, by which time the log buffer has rotated away. Kept in Android/data/app.gearcam/files/logs. */
+    private void log(String line) {
+        android.util.Log.i("GearCamAudio", line);
+        try {
+            if (logFile == null) {
+                File dir = new File(context.getExternalFilesDir(null), "logs");
+                if (!dir.isDirectory() && !dir.mkdirs()) return;
+                File[] existing = dir.listFiles();
+                if (existing != null && existing.length > 9) { // keep the last few takes
+                    java.util.Arrays.sort(existing, (a, b) -> Long.compare(a.lastModified(), b.lastModified()));
+                    for (int i = 0; i < existing.length - 9; i++) existing[i].delete();
+                }
+                logFile = new java.io.PrintWriter(new java.io.FileWriter(new File(dir,
+                        "take-" + new java.text.SimpleDateFormat("yyyyMMdd-HHmmss", java.util.Locale.ROOT).format(new java.util.Date()) + ".log"), true));
+            }
+            logFile.println(logClock.format(new java.util.Date()) + "  " + line);
+            logFile.flush();
+        }
+        catch (Exception ignored) { }
     }
 
     private void process() {
@@ -342,7 +368,7 @@ public final class JamAudioSession {
                     gapMode = true; // waited long enough: the hole is real, so keep the timeline moving
                 }
                 else if (stalledNs != 0) {
-                    android.util.Log.w("GearCamAudio", "capture caught up after " + (System.nanoTime() - stalledNs) / 1_000_000 + " ms");
+                    log("capture caught up after " + (System.nanoTime() - stalledNs) / 1_000_000 + " ms");
                     stalledNs = 0;
                     gapMode = false;
                 }
@@ -354,7 +380,7 @@ public final class JamAudioSession {
                     missingFrames[i] = missing == 0 ? 0 : missingFrames[i] + missing;
                     if (writing && frame < MixerSettings.RATE) missingFrames[i] = 0; // Initial capture and user-selected sync padding.
                     if (missing > 0 && missingFrames[i] == missing)
-                        android.util.Log.w("GearCamAudio", "gap starts · " + capture.diagnostics(writing ? time - syncOffsetNs : time));
+                        log("gap starts · " + capture.diagnostics(writing ? time - syncOffsetNs : time));
                     if (missingFrames[i] > MixerSettings.RATE * 5 && ready.getCount() == 0)
                         fail(capture.input.label + ": audio stopped arriving after " + (writing ? frame / MixerSettings.RATE : 0)
                                 + " s. Recording stopped." + capture.clockNote());
@@ -372,7 +398,7 @@ public final class JamAudioSession {
                         }
                     }
                     for (Capture capture : captures) {
-                        android.util.Log.i("GearCamAudio", (writing ? "recording · " : "monitor · ") + capture.diagnostics(writing ? time - syncOffsetNs : time));
+                        log((writing ? "recording · " : "monitor · ") + capture.diagnostics(writing ? time - syncOffsetNs : time));
                         capture.resetTiming();
                     }
                 }
@@ -403,6 +429,7 @@ public final class JamAudioSession {
             for (Capture capture : captures) capture.close();
             if (encoder != null) encoder.close();
             if (master != null) try { master.close(); } catch (IOException closeError) { audioFinished = false; fail("Cannot finish WAV master: " + closeError.getMessage()); }
+            if (logFile != null) { log("take ended"); logFile.close(); logFile = null; }
             settings.preferences.unregisterOnSharedPreferenceChangeListener(preferencesListener);
             if (audioOnlyEncoder != null) try { audioOnlyEncoder.close(); }
             catch (IOException e) { audioFinished = false; fail("Cannot finish audio: " + e.getMessage()); }
@@ -426,6 +453,8 @@ public final class JamAudioSession {
         volatile double periodNs;
         /** Where the capture loop spends its time, reset at every report. */
         volatile long readMaxNs, appendMaxNs, otherMaxNs, filterMaxNs, loopNs, calls, framesPerCall;
+        /** How far the stamped timeline sits from the host clock: this must not grow over a take. */
+        volatile long phaseErrorNs;
         final Thread thread;
         private boolean started;
 
@@ -493,8 +522,7 @@ public final class JamAudioSession {
             long fallbackNs = 0;
             long[] usbTiming = new long[4];
             long usbOverflow = 0;
-            boolean clockLocked = false;
-            long usbFirstNs = 0;
+            CaptureClock clock = new CaptureClock(MixerSettings.RATE);
             boolean announced = false;
             try {
                 while (running) {
@@ -521,22 +549,18 @@ public final class JamAudioSession {
                         usbOverflow = usbTiming[3];
                         if (anchorNs != 0 && usbTiming[2] - anchorNs >= 500_000_000L && usbTiming[1] > anchorFrame) {
                             double measured = (double) (usbTiming[2] - anchorNs) / (usbTiming[1] - anchorFrame);
-                            double nominal = 1_000_000_000.0 / MixerSettings.RATE;
-                            if (measured > nominal * 0.88 && measured < nominal * 1.12) {
-                                // Lock onto the first estimate, then smooth: easing in from the nominal rate
-                                // would spend seconds slipping if the device is far off.
-                                period = clockLocked ? period + 0.1 * (measured - period) : measured;
-                                clockLocked = true;
-                                clockPercent = (period / nominal - 1) * 100;
-                            }
+                            // Start from the device's own rate rather than nominal; CaptureClock holds it there.
+                            if (clock.believable(measured)) clock.lock(measured);
                             else clockRejects++;
                             anchorNs = usbTiming[2]; anchorFrame = usbTiming[1];
                         } else if (anchorNs == 0) { anchorNs = usbTiming[2]; anchorFrame = usbTiming[1]; }
-                        // Arrival jitter must not reposition each block and discard overlapping frames.
-                        if (usbFirstNs == 0) usbFirstNs = usbTiming[2] - Math.round(usbTiming[1] * period);
-                        first = fallbackNs;
-                        if (frames == 0) first = usbFirstNs + Math.round(usbTiming[0] * period);
-                        fallbackNs = first + Math.round(count * period);
+                        // When the driver received this block's first frame, by the host clock. CaptureClock
+                        // holds the stamps against that, so no rate error can accumulate over a long take.
+                        long received = usbTiming[2] - Math.round((usbTiming[1] - usbTiming[0]) * clock.period());
+                        first = clock.stamp(count, received);
+                        period = clock.period();
+                        phaseErrorNs = clock.driftNs;
+                        clockPercent = (period / (1_000_000_000.0 / MixerSettings.RATE) - 1) * 100;
                     } else if (Build.VERSION.SDK_INT >= 24 && recorder.getTimestamp(timestamp, AudioTimestamp.TIMEBASE_MONOTONIC) == AudioRecord.SUCCESS) {
                         if (anchorNs != 0 && timestamp.nanoTime - anchorNs >= 500_000_000L && timestamp.framePosition > anchorFrame) {
                             double measured = (double) (timestamp.nanoTime - anchorNs) / (timestamp.framePosition - anchorFrame);
@@ -576,6 +600,7 @@ public final class JamAudioSession {
                     buffer.newestNs() == 0 ? 0 : (buffer.newestNs() - readNs) / 1e6,
                     periodNs, clockPercent, clockRejects, overflowFrames)
                     + (freeSpace == null ? "" : String.format(java.util.Locale.ROOT, " free=%dMB", freeSpace.bytes() / 1_000_000L))
+                    + String.format(java.util.Locale.ROOT, " drift=%+.1fms", phaseErrorNs / 1e6)
                     + String.format(java.util.Locale.ROOT, " | calls=%d frames/call=%d busy=%.0f%% read<=%.0fms filter<=%.0fms append<=%.0fms other<=%.0fms",
                     calls, calls == 0 ? 0 : framesPerCall / calls, loopNs / 2e7, readMaxNs / 1e6, filterMaxNs / 1e6, appendMaxNs / 1e6, otherMaxNs / 1e6);
         }
